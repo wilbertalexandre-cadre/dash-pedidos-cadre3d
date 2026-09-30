@@ -97,39 +97,51 @@ df = carregar_dados_do_drive()
 if df is not None and not df.empty:
     
     if 'Data' not in df.columns:
-        st.warning("⚠️️ Atenção: Não foi encontrada coluna de data válida. Verifique se a coluna 'Hora do pagamento do pedido' está presente nas planilhas.")
+        st.warning("⚠ Atenção: Não foi encontrada coluna de data válida.")
         df_filtrado = df
     else:
         st.subheader("📊 Visão Geral")
         
-        col_filtro, col_data, _ = st.columns([2, 2, 2])
+        col_filtro, col_status, col_data = st.columns([2, 2, 2])
         
         with col_filtro:
             opcao_tempo = st.selectbox(
-                "Filtrar por período (com base na Hora do Pagamento):", 
+                "Filtrar por período (Pagamento):", 
                 ["Todo o período", "Esta semana", "Últimos 7 dias", "Este mês", "Últimos 30 dias", "Período personalizado"]
+            )
+            
+        with col_status:
+            # Filtro para excluir ou incluir cancelados e comparar com a Shopee
+            filtro_status = st.selectbox(
+                "Estado dos pedidos:",
+                ["Apenas Concluídos (Padrão Shopee)", "Todos (Incluindo Cancelados)"]
             )
         
         hoje = pd.Timestamp.today().normalize()
         df_filtrado = df.copy()
         
+        # 1. Filtro de Tempo
         if opcao_tempo == "Esta semana":
             inicio = hoje - pd.Timedelta(days=hoje.weekday())
-            df_filtrado = df[df['Data'] >= inicio]
+            df_filtrado = df_filtrado[df_filtrado['Data'] >= inicio]
         elif opcao_tempo == "Últimos 7 dias":
             inicio = hoje - pd.Timedelta(days=7)
-            df_filtrado = df[df['Data'] >= inicio]
+            df_filtrado = df_filtrado[df_filtrado['Data'] >= inicio]
         elif opcao_tempo == "Este mês":
             inicio = hoje.replace(day=1)
-            df_filtrado = df[df['Data'] >= inicio]
+            df_filtrado = df_filtrado[df_filtrado['Data'] >= inicio]
         elif opcao_tempo == "Últimos 30 dias":
             inicio = hoje - pd.Timedelta(days=30)
-            df_filtrado = df[df['Data'] >= inicio]
+            df_filtrado = df_filtrado[df_filtrado['Data'] >= inicio]
         elif opcao_tempo == "Período personalizado":
             with col_data:
-                datas = st.date_input("Selecione o intervalo:", [hoje - pd.Timedelta(days=7), hoje])
+                datas = st.date_input("Intervalo:", [hoje - pd.Timedelta(days=7), hoje])
             if len(datas) == 2:
-                df_filtrado = df[(df['Data'] >= pd.to_datetime(datas[0])) & (df['Data'] <= pd.to_datetime(datas[1]))]
+                df_filtrado = df_filtrado[(df_filtrado['Data'] >= pd.to_datetime(datas[0])) & (df_filtrado['Data'] <= pd.to_datetime(datas[1]))]
+                
+        # 2. Filtro de Status
+        if filtro_status == "Apenas Concluídos (Padrão Shopee)" and 'Status do pedido' in df_filtrado.columns:
+            df_filtrado = df_filtrado[df_filtrado['Status do pedido'].str.lower() == 'concluído']
                 
     st.markdown("<br>", unsafe_allow_html=True)
     
