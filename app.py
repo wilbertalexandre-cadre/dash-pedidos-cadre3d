@@ -7,7 +7,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
 st.set_page_config(page_title="Dashboard Cadre 3D", page_icon="📦", layout="centered")
-st.title("📦 Controle de Pedidos - Cadre 3D")
+st.title("📦 Controlo de Pedidos - Cadre 3D")
 st.markdown("Consulta automática de recebimentos direto do Google Drive.")
 
 @st.cache_data(ttl=120)
@@ -63,6 +63,14 @@ def carregar_dados_do_drive():
         st.error(f"Erro de ligação com o Drive: {e}")
         return None
 
+# --- BOTÃO DE ATUALIZAÇÃO ---
+col_esq, col_dir = st.columns([3, 1])
+with col_dir:
+    st.write("") # Pequeno espaço para alinhar com o texto
+    if st.button("🔄 Atualizar Dados"):
+        carregar_dados_do_drive.clear() # Força a limpeza da memória cache
+# ----------------------------
+
 df = carregar_dados_do_drive()
 
 if df is not None and not df.empty:
@@ -76,10 +84,10 @@ if df is not None and not df.empty:
             st.success("✅ Pedido localizado!")
             info = resultado.iloc[0]
             
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Valor", f"R$ {info.get('Valor', 'N/A')}")
-            col2.metric("Status", info.get('Status', 'N/A'))
-            col3.metric("ID", info.get('ID do Pedido', 'N/A'))
+            col_m1, col_m2, col_m3 = st.columns(3)
+            col_m1.metric("Valor", f"R$ {info.get('Valor', 'N/A')}")
+            col_m2.metric("Status", info.get('Status', 'N/A'))
+            col_m3.metric("ID", info.get('ID do Pedido', 'N/A'))
             
             if 'Observações' in info and pd.notna(info['Observações']):
                 st.info(f"Observações: {info['Observações']}")
