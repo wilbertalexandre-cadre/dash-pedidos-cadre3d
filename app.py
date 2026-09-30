@@ -7,7 +7,6 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
-# Alterei o layout para 'wide' para o dashboard ter mais espaço
 st.set_page_config(page_title="Dashboard Cadre 3D", page_icon="📦", layout="wide")
 
 st.title("📦 Dashboard de Vendas - Cadre 3D")
@@ -57,23 +56,37 @@ def carregar_dados_do_drive():
             df_completo = pd.concat(dfs, ignore_index=True)
             df_completo.columns = df_completo.columns.str.strip() 
             
-            # Remover duplicados pelo ID do Pedido
             if 'ID do Pedido' in df_completo.columns:
                 df_limpo = df_completo.drop_duplicates(subset=['ID do Pedido'], keep='last').copy()
             else:
                 df_limpo = df_completo.copy()
                 
             # --- LIMPEZA DE DADOS PARA OS CÁLCULOS ---
-            # 1. Transformar a coluna 'Data' em formato de Data real (se a coluna existir)
             if 'Data' in df_limpo.columns:
                 df_limpo['Data'] = pd.to_datetime(df_limpo['Data'], dayfirst=True, errors='coerce')
                 
-            # 2. Limpar a coluna 'Valor' (tirar R$, pontos e transformar vírgula em ponto para o Python somar)
-            if 'Valor' in df_limpo.columns:
-                df_limpo['Valor_Numerico'] = df_limpo['Valor'].astype(str).str.replace('R$', '', regex=False)
-                df_limpo['Valor_Numerico'] = df_limpo['Valor_Numerico'].str.replace('.', '', regex=False)
-                df_limpo['Valor_Numerico'] = df_limpo['Valor_Numerico'].str.replace(',', '.', regex=False)
-                df_limpo['Valor_Numerico'] = pd.to_numeric(df_limpo['Valor_Numerico'], errors='coerce').fillna(0)
+            # NOVO CÁLCULO: Preço acordado * Quantidade
+            if 'Preço acordado' in df_limpo.columns and 'Quantidade' in df_limpo.columns:
+                # Limpa o preço (tira R$, pontos e converte vírgula)
+                preco = df_limpo['Preço acordado'].astype(str).str.replace('R$', '', regex=False)
+                preco = preco.str.replace('.', '', regex=False)
+                preco = preco.str.replace(',', '.', regex=False)
+                preco = pd.to_numeric(preco, errors='coerce').fillna(0)
+                
+                # Limpa a quantidade garantindo que é um número
+                qtd = pd.to_numeric(df_limpo['Quantidade'], errors='coerce').fillna(0)
+                
+                # Multiplica para ter o valor real da linha
+                df_limpo['Valor_Numerico'] = preco * qtd
+                
+            # Regra de segurança caso suba uma planilha apenas com a coluna "Valor"
+            elif 'Valor' in df_limpo.columns:
+                valor_segurança = df_limpo['Valor'].astype(str).str.replace('R$', '', regex=False)
+                valor_segurança = valor_segurança.str.replace('.', '', regex=False)
+                valor_segurança = valor_segurança.str.replace(',', '.', regex=False)
+                df_limpo['Valor_Numerico'] = pd.to_numeric(valor_segurança, errors='coerce').fillna(0)
+            else:
+                df_limpo['Valor_Numerico'] = 0.0
                 
             return df_limpo
             
@@ -81,23 +94,19 @@ def carregar_dados_do_drive():
         st.error(f"Erro de ligação com o Drive: {e}")
         return None
 
-# --- TOP BAR COM BOTÃO DE ATUALIZAÇÃO ---
 col_vazia, col_btn = st.columns([4, 1])
 with col_btn:
     if st.button("🔄 Forçar Atualização dos Ficheiros", use_container_width=True):
         carregar_dados_do_drive.clear()
 
-# Carregar os dados
 df = carregar_dados_do_drive()
 
 if df is not None and not df.empty:
     
-    # Verificação de segurança: A coluna Data existe?
     if 'Data' not in df.columns:
-        st.warning("⚠️ Atenção: Não foi encontrada uma coluna chamada 'Data' nos seus ficheiros. Os filtros de tempo e resumos precisam dessa coluna para funcionar (ex: 30/09/2026).")
+        st.warning("⚠️ Atenção: Não foi encontrada uma coluna chamada 'Data'. Os filtros de tempo precisam dessa coluna para funcionar.")
         df_filtrado = df
     else:
-        # --- ÁREA DE FILTROS ---
         st.subheader("📊 Visão Geral")
         
         col_filtro, col_data, _ = st.columns([2, 2, 2])
@@ -112,7 +121,6 @@ if df is not None and not df.empty:
         df_filtrado = df.copy()
         
         if opcao_tempo == "Esta semana":
-            # Assume que a semana começa à segunda-feira
             inicio = hoje - pd.Timedelta(days=hoje.weekday())
             df_filtrado = df[df['Data'] >= inicio]
             
@@ -133,24 +141,16 @@ if df is not None and not df.empty:
                 datas = st.date_input("Selecione o intervalo (Início - Fim):", [hoje - pd.Timedelta(days=7), hoje])
             
             if len(datas) == 2:
-                # Converte as datas selecionadas
                 data_inicio = pd.to_datetime(datas[0])
                 data_fim = pd.to_datetime(datas[1])
                 df_filtrado = df[(df['Data'] >= data_inicio) & (df['Data'] <= data_fim)]
             else:
                 st.info("Por favor, selecione a data de fim.")
                 
-    # --- ÁREA DE MÉTRICAS (CARTÕES) ---
-    st.markdown("<br>", unsafe_allow_html=True) # Espaço visual
+    st.markdown("<br>", unsafe_allow_html=True)
     
     qtd_pedidos = len(df_filtrado)
-    
-    # Soma os valores se a coluna numérica existir
-    valor_total = 0
-    if 'Valor_Numerico' in df_filtrado.columns:
-        valor_total = df_filtrado['Valor_Numerico'].sum()
-        
-    # Formatação do valor para padrão brasileiro/português (1.234,56)
+    valor_total = df_filtrado['Valor_Numerico'].sum() if 'Valor_Numerico' in df_filtrado.columns else 0
     valor_formatado = f"R$ {valor_total:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
     
     col_metric1, col_metric2, col_metric3 = st.columns(3)
@@ -159,7 +159,6 @@ if df is not None and not df.empty:
     
     st.divider()
     
-    # --- ÁREA DE PESQUISA INDIVIDUAL ---
     st.subheader("🔍 Consultar Pedido Específico")
     pedido_id = st.text_input("Digite o ID do Pedido (Ex: 230910ABCDEF):").strip()
     
@@ -171,8 +170,12 @@ if df is not None and not df.empty:
                 st.success("✅ Pedido localizado!")
                 info = resultado.iloc[0]
                 
+                # Exibe o valor calculado daquela venda específica
+                valor_linha = info.get('Valor_Numerico', 0)
+                valor_linha_fmt = f"R$ {valor_linha:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+                
                 col_res1, col_res2, col_res3 = st.columns(3)
-                col_res1.metric("Valor", f"R$ {info.get('Valor', 'N/A')}")
+                col_res1.metric("Valor", valor_linha_fmt)
                 col_res2.metric("Status", info.get('Status', 'N/A'))
                 col_res3.metric("ID", info.get('ID do Pedido', 'N/A'))
                 
@@ -185,13 +188,9 @@ if df is not None and not df.empty:
             
     st.divider()
     with st.expander("Ver lista de pedidos (Tabela Completa)"):
-        # Mostra a tabela sem a coluna técnica que criámos
         tabela_visual = df_filtrado.drop(columns=['Valor_Numerico'], errors='ignore')
-        
-        # Formatar a data para ficar bonita na tabela antes de mostrar
         if 'Data' in tabela_visual.columns:
             tabela_visual['Data'] = tabela_visual['Data'].dt.strftime('%d/%m/%Y')
-            
         st.dataframe(tabela_visual, use_container_width=True)
 else:
     st.info("A pasta está vazia ou a aguardar ficheiros. Adicione a sua primeira folha de cálculo no Google Drive!")
