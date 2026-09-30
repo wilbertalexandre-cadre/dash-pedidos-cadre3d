@@ -100,50 +100,41 @@ if df is not None and not df.empty:
         st.warning("⚠ Atenção: Não foi encontrada coluna de data válida.")
         df_filtrado = df
     else:
-        st.subheader("📊 Visão Geral")
+        st.sidebar.header("🎛️ Filtros do Painel")
         
-        col_filtro, col_status, col_data = st.columns([2, 2, 2])
+        opcao_tempo = st.sidebar.selectbox(
+            "Período (Base: Pagamento):", 
+            ["Todo o período", "Este mês", "Últimos 30 dias", "Últimos 7 dias", "Personalizado"]
+        )
         
-        with col_filtro:
-            opcao_tempo = st.selectbox(
-                "Filtrar por período (Pagamento):", 
-                ["Todo o período", "Esta semana", "Últimos 7 dias", "Este mês", "Últimos 30 dias", "Período personalizado"]
-            )
-            
-        with col_status:
-            # Filtro para excluir ou incluir cancelados e comparar com a Shopee
-            filtro_status = st.selectbox(
-                "Estado dos pedidos:",
-                ["Apenas Concluídos (Padrão Shopee)", "Todos (Incluindo Cancelados)"]
-            )
+        filtro_status = st.sidebar.selectbox(
+            "Estado dos pedidos:",
+            ["Todos (Geral)", "Apenas Concluídos"]
+        )
         
         hoje = pd.Timestamp.today().normalize()
         df_filtrado = df.copy()
         
-        # 1. Filtro de Tempo
-        if opcao_tempo == "Esta semana":
-            inicio = hoje - pd.Timedelta(days=hoje.weekday())
-            df_filtrado = df_filtrado[df_filtrado['Data'] >= inicio]
-        elif opcao_tempo == "Últimos 7 dias":
-            inicio = hoje - pd.Timedelta(days=7)
-            df_filtrado = df_filtrado[df_filtrado['Data'] >= inicio]
-        elif opcao_tempo == "Este mês":
+        # Filtro de Tempo
+        if opcao_tempo == "Este mês":
             inicio = hoje.replace(day=1)
             df_filtrado = df_filtrado[df_filtrado['Data'] >= inicio]
         elif opcao_tempo == "Últimos 30 dias":
             inicio = hoje - pd.Timedelta(days=30)
             df_filtrado = df_filtrado[df_filtrado['Data'] >= inicio]
-        elif opcao_tempo == "Período personalizado":
-            with col_data:
-                datas = st.date_input("Intervalo:", [hoje - pd.Timedelta(days=7), hoje])
-            if len(datas) == 2:
-                df_filtrado = df_filtrado[(df_filtrado['Data'] >= pd.to_datetime(datas[0])) & (df_filtrado['Data'] <= pd.to_datetime(datas[1]))]
+        elif opcao_tempo == "Últimos 7 dias":
+            inicio = hoje - pd.Timedelta(days=7)
+            df_filtrado = df_filtrado[df_filtrado['Data'] >= inicio]
+        elif opcao_tempo == "Personalizado":
+            d_inicio = st.sidebar.date_input("Data Inicial", hoje - pd.Timedelta(days=30))
+            d_fim = st.sidebar.date_input("Data Final", hoje)
+            df_filtrado = df_filtrado[(df_filtrado['Data'] >= pd.to_datetime(d_inicio)) & (df_filtrado['Data'] <= pd.to_datetime(d_fim) + pd.Timedelta(days=1))]
                 
-        # 2. Filtro de Status
-        if filtro_status == "Apenas Concluídos (Padrão Shopee)" and 'Status do pedido' in df_filtrado.columns:
+        # Filtro de Status
+        if filtro_status == "Apenas Concluídos" and 'Status do pedido' in df_filtrado.columns:
             df_filtrado = df_filtrado[df_filtrado['Status do pedido'].str.lower() == 'concluído']
                 
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.subheader("📊 Visão Geral")
     
     total_pedidos_unicos = df_filtrado['ID do Pedido'].nunique() if 'ID do Pedido' in df_filtrado.columns else len(df_filtrado)
     total_itens_vendidos = len(df_filtrado)
@@ -151,8 +142,8 @@ if df is not None and not df.empty:
     valor_formatado = f"R$ {valor_total:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
     
     col_m1, col_m2, col_m3 = st.columns(3)
-    col_m1.metric("📦 Pedidos Únicos (Shopee)", total_pedidos_unicos)
-    col_m2.metric("🏷️ Total de Itens/Linhas", total_itens_vendidos)
+    col_m1.metric("📦 Pedidos Únicos (IDs Distintos)", total_pedidos_unicos)
+    col_m2.metric("🏷️ Total de Linhas / Itens", total_itens_vendidos)
     col_m3.metric("💰 Faturamento Total", valor_formatado)
     
     st.divider()
