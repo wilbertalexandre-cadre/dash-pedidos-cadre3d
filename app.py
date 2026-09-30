@@ -146,6 +146,17 @@ if df is not None and not df.empty:
     col_m2.metric("🏷️ Total de Linhas / Itens", total_itens_vendidos)
     col_m3.metric("💰 Faturamento Total", valor_formatado)
     
+    # --- DIAGNÓSTICO DOS 10 PEDIDOS ---
+    st.markdown("---")
+    st.subheader("🔎 Diagnóstico de Status dos Pedidos (Para encontrar os 10 de diferença)")
+    if 'Status do pedido' in df.columns and 'ID do Pedido' in df.columns:
+        # Agrupa por status do pedido para vermos exatamente quantos pedidos únicos existem em cada categoria
+        diagnostico = df.groupby('Status do pedido')['ID do Pedido'].nunique().reset_index()
+        diagnostico.columns = ['Status do Pedido', 'Quantidade de Pedidos Únicos']
+        st.dataframe(diagnostico, use_container_width=True)
+    else:
+        st.info("Colunas de status ou ID não disponíveis para diagnóstico.")
+        
     st.divider()
     
     st.subheader("🔍 Consultar Pedido Específico")
