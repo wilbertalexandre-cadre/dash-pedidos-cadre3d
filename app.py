@@ -7,7 +7,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
 st.set_page_config(page_title="Dashboard Cadre 3D", page_icon="📦", layout="centered")
-st.title("📦 Controlo de Pedidos - Cadre 3D")
+st.title("📦 Controle de Pedidos - Cadre 3D")
 st.markdown("Consulta automática de recebimentos direto do Google Drive.")
 
 @st.cache_data(ttl=120)
