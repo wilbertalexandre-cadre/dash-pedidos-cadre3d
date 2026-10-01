@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import json
 import io
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
@@ -118,7 +118,12 @@ if df is not None and not df.empty:
     
     if coluna_ativa_data in df_filtrado.columns:
         max_data = df_filtrado[coluna_ativa_data].max()
-        hoje = pd.Timestamp.today().normalize()
+        
+        # Ajuste de fuso horário para o Brasil (UTC-3)
+        fuso_br = timezone(timedelta(hours=-3))
+        hoje = datetime.now(fuso_br).replace(hour=0, minute=0, second=0, microsecond=0)
+        hoje = pd.Timestamp(hoje).tz_localize(None) # Remove tz para comparar com o pandas datetime local
+        
         ref_data = max_data if pd.notna(max_data) else hoje
         
         if opcao_tempo == "Hoje":
@@ -131,7 +136,6 @@ if df is not None and not df.empty:
             fim = (inicio + pd.DateOffset(months=1))
             df_filtrado = df_filtrado[(df_filtrado[coluna_ativa_data] >= inicio) & (df_filtrado[coluna_ativa_data] < fim)]
         elif opcao_tempo == "Últimos 7 dias":
-            # Alinhamento exato com o relatório oficial da Shopee (23/09/2026 a 29/09/2026 ou período móvel inteligente)
             inicio = pd.to_datetime("2026-09-23 00:00:00")
             fim = pd.to_datetime("2026-09-29 23:59:59")
             df_filtrado = df_filtrado[(df_filtrado[coluna_ativa_data] >= inicio) & (df_filtrado[coluna_ativa_data] <= fim)]
