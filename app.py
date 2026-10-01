@@ -50,6 +50,7 @@ def carregar_dados_do_drive():
             for arq in arquivos:
                 request = servico.files().get_media(fileId=arq['id'])
                 if arq['mimeType'] == 'application/vnd.google-apps.spreadsheet':
+                    # Tenta exportar ou ler todas as abas se possível, aqui exportamos como csv a aba padrão
                     request = servico.files().export_media(fileId=arq['id'], mimeType='text/csv')
                     arquivo_baixado = io.BytesIO(request.execute())
                     df = pd.read_csv(arquivo_baixado)
@@ -64,7 +65,12 @@ def carregar_dados_do_drive():
                     if arq['name'].endswith('.csv'):
                         df = pd.read_csv(arquivo_baixado)
                     else:
-                        df = pd.read_excel(arquivo_baixado)
+                        # Para arquivos Excel da Shopee (como Income), lê todas as abas ou tenta encontrar a aba 'Renda'
+                        xls = pd.ExcelFile(arquivo_baixado)
+                        sheet_names = xls.sheet_names
+                        # Procura aba 'Renda' ou pega a primeira se não achar
+                        aba_alvo = next((s for s in sheet_names if 'renda' in s.lower() or 'income' in s.lower()), sheet_names[0])
+                        df = pd.read_excel(xls, sheet_name=aba_alvo)
                 dfs.append(df)
             return dfs
 
@@ -82,19 +88,23 @@ def carregar_dados_do_drive():
         df_pedidos.columns = df_pedidos.columns.str.strip()
         df_limpo = df_pedidos.copy()
         
-        # --- CRUZAR COM DADOS FINANCEIROS SE EXISTIR ---
+        # --- CRUZAR COM DADOS FINANCEIROS (Coluna 'Quantia total lançada') ---
         if not df_financeiro.empty:
             df_financeiro.columns = df_financeiro.columns.str.strip()
-            # Identificar colunas comuns para o cruzamento (ID do pedido)
+            
+            # Identificar coluna de ID do pedido no financeiro
             col_id_ped = next((c for c in df_limpo.columns if 'id' in c.lower() and 'pedido' in c.lower()), df_limpo.columns[0])
             col_id_fin = next((c for c in df_financeiro.columns if 'id' in c.lower() and 'pedido' in c.lower()), None)
             
-            # Procurar coluna de valor a receber / montante líquido no financeiro
-            col_valor_fin = next((c for c in df_financeiro.columns if any(term in c.lower() for term in ['valor a receber', 'total', 'repasse', 'rendimento', 'líquido', 'liquido'])), None)
+            # Identificar a coluna exata 'Quantia total lançada' ou similar
+            col_quantia_fin = next((c for c in df_financeiro.columns if 'quantia total lançada' in c.lower() or 'quantia total lancada' in c.lower() or 'total lançada' in c.lower()), None)
             
-            if col_id_fin and col_valor_fin:
-                # Criar um dicionário de repasse financeiro por ID do pedido
-                fin_dict = dict(zip(df_financeiro[col_id_fin].astype(str).str.strip(), df_financeiro[col_valor_fin]))
+            if col_id_fin and col_quantia_fin:
+                # Cria dicionário de mapeamento ID -> Quantia total lançada
+                fin_dict = dict(zip(
+                    df_financeiro[col_id_fin].astype(str).str.strip(), 
+                    df_financeiro[col_quantia_fin]
+                ))
                 df_limpo['Valor_Financeiro_Real'] = df_limpo[col_id_ped].astype(str).str.strip().map(fin_dict)
             else:
                 df_limpo['Valor_Financeiro_Real'] = None
@@ -140,7 +150,7 @@ def carregar_dados_do_drive():
         frete_liquido = est_frete - desc_frete
         valor_produto_estimado = total_global - frete_liquido + ajuste_comercial
         
-        # Se houver valor real no financeiro, usa ele; senão, usa o estimado calculado
+        # Se houver valor real lançado no financeiro, usa ele; senão, usa o estimado calculado
         val_real_limpo = limpar_coluna_valor(df_limpo['Valor_Financeiro_Real'])
         df_limpo['Valor_Produto'] = [
             real if real > 0 else est 
