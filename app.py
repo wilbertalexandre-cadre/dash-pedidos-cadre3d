@@ -207,7 +207,12 @@ df = carregar_dados_do_drive()
 
 if df is not None and not df.empty:
     
-    st.sidebar.header("🎛️ Filtros do Painel")
+    # --- MENU DA BARRA LATERAL ---
+    st.sidebar.header("🎛️ Navegação")
+    pagina_selecionada = st.sidebar.radio("Ir para:", ["Financeiro", "Pedidos", "Estatísticas"])
+    
+    st.sidebar.divider()
+    st.sidebar.header("📅 Filtros do Período")
     coluna_ativa_data = 'Data_Criacao'
     
     opcao_tempo = st.sidebar.selectbox(
@@ -291,146 +296,147 @@ if df is not None and not df.empty:
     def fmt_val(val):
         return f"R$ {val:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
 
-    # Totais gerais calculados estritamente apenas sobre os pedidos VÁLIDOS
+    # Totais gerais (apenas Válidos)
     tot_produto_val = df_periodo[validados_mask]['Valor_Produto'].sum() if 'Valor_Produto' in df_periodo.columns else 0.0
     tot_liberado_val = df_periodo[validados_mask]['Valor_Liberado'].sum() if 'Valor_Liberado' in df_periodo.columns else 0.0
     tot_sujo_val = df_periodo[validados_mask]['Valor_Sujo'].sum() if 'Valor_Sujo' in df_periodo.columns else 0.0
-    
-    # --- EXIBIÇÃO EM MÉTRICAS ---
-    st.subheader(f"📊 Resumo de Pedidos ({opcao_tempo})")
-    
-    col1, col2, col3, col4, col5, col6 = st.columns(6)
-    col1.metric("📦 Válidos", total_validos)
-    col2.metric("⏳ Não pago", nao_pago_cnt)
-    col3.metric("📤 A Enviar", a_enviar_cnt)
-    col4.metric("🚚 Enviado", enviado_cnt)
-    col5.metric("✅ Concluído", concluido_cnt)
-    col6.metric("❌ Cancelados", cancelados_cnt)
-    
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    col_fat1, col_fat2, col_fat3 = st.columns(3)
-    with col_fat1:
-        st.metric("🎯 Montante de Produtos (Sua Renda Total)", fmt_val(tot_produto_val))
-    with col_fat2:
-        st.metric("💰 Valor Liberado (Já Pago / Saldo)", fmt_val(tot_liberado_val))
-    with col_fat3:
-        st.metric("📦 Montante Bruto / Sujo (Com Frete)", fmt_val(tot_sujo_val))
-    
-    st.divider()
-    
-    # --- CÁLCULOS POR ABA (Também considerando as regras de Válidos) ---
-    def calc_aba(mask):
-        p = df_periodo[mask]['Valor_Produto'].sum() if 'Valor_Produto' in df_periodo.columns else 0.0
-        l = df_periodo[mask]['Valor_Liberado'].sum() if 'Valor_Liberado' in df_periodo.columns else 0.0
-        s = df_periodo[mask]['Valor_Sujo'].sum() if 'Valor_Sujo' in df_periodo.columns else 0.0
-        return p, l, s
 
-    p_val, l_val, s_val = calc_aba(validados_mask)
-    p_naopag, l_naopag, s_naopag = calc_aba(nao_pago_mask)
-    p_aenv, l_aenv, s_aenv = calc_aba(a_enviar_mask)
-    p_env, l_env, s_env = calc_aba(enviado_mask)
-    p_conc, l_conc, s_conc = calc_aba(concluido_mask)
-    p_canc, l_canc, s_canc = calc_aba(cancelados_mask)
-
-    st.subheader("📋 Detalhamento dos Pedidos do Período")
-    
-    tab_val, tab_naopag, tab_aenv, tab_env, tab_conc, tab_canc = st.tabs([
-        f"📦 Válidos ({total_validos})",
-        f"⏳ Não pago ({nao_pago_cnt})",
-        f"📤 A Enviar ({a_enviar_cnt})",
-        f"🚚 Enviado ({enviado_cnt})",
-        f"✅ Concluído ({concluido_cnt})",
-        f"❌ Cancelados ({cancelados_cnt})"
-    ])
-    
-    def exibir_tabela_e_montantes(mask_filtro, prod_val, lib_val, sujo_val, mostrar_motivo=False):
-        if mask_filtro.sum() > 0:
-            df_show = df_periodo[mask_filtro].copy()
-            cols_exibir = [col_id, 'Data de criação do pedido']
-            if 'Total global' in df_show.columns:
-                cols_exibir.append('Total global')
-            if 'Ajuste por participação em ação comercial' in df_show.columns:
-                cols_exibir.append('Ajuste por participação em ação comercial')
-            if 'Valor_Produto' in df_show.columns:
-                cols_exibir.append('Valor_Produto')
-            if 'Valor_Liberado' in df_show.columns:
-                cols_exibir.append('Valor_Liberado')
-            if 'Valor_Sujo' in df_show.columns:
-                cols_exibir.append('Valor_Sujo')
-            if col_status and col_status in df_show.columns:
-                cols_exibir.append(col_status)
-            if mostrar_motivo and col_motivo and col_motivo in df_show.columns:
-                cols_exibir.append(col_motivo)
-            if 'Nome do Produto' in df_show.columns:
-                cols_exibir.append('Nome do Produto')
-                
-            df_show_fmt = df_show[cols_exibir].copy()
-            if 'Valor_Produto' in df_show_fmt.columns:
-                df_show_fmt['Montante Produto'] = df_show_fmt['Valor_Produto'].apply(fmt_val)
-                df_show_fmt = df_show_fmt.drop(columns=['Valor_Produto'])
-            if 'Valor_Liberado' in df_show_fmt.columns:
-                df_show_fmt['Valor Liberado'] = df_show_fmt['Valor_Liberado'].apply(fmt_val)
-                df_show_fmt = df_show_fmt.drop(columns=['Valor_Liberado'])
-            if 'Valor_Sujo' in df_show_fmt.columns:
-                df_show_fmt['Montante Bruto'] = df_show_fmt['Valor_Sujo'].apply(fmt_val)
-                df_show_fmt = df_show_fmt.drop(columns=['Valor_Sujo'])
-                
-            st.dataframe(df_show_fmt, use_container_width=True)
+    # ==================== PÁGINA: FINANCEIRO ====================
+    if pagina_selecionada == "Financeiro":
+        st.header(f"💰 Seção Financeira ({opcao_tempo})")
+        st.markdown("Acompanhe o valor líquido de seus produtos, repasses já liberados e o faturamento bruto.")
+        
+        col_fat1, col_fat2, col_fat3 = st.columns(3)
+        with col_fat1:
+            st.metric("🎯 Montante de Produtos (Sua Renda Total)", fmt_val(tot_produto_val))
+        with col_fat2:
+            st.metric("💰 Valor Liberado (Já Pago / Saldo)", fmt_val(tot_liberado_val))
+        with col_fat3:
+            st.metric("📦 Montante Bruto / Sujo (Com Frete)", fmt_val(tot_sujo_val))
             
-            st.markdown(
-                f"**Resumo da Categoria:** &nbsp;&nbsp; 🎯 **Renda Total:** `{fmt_val(prod_val)}` &nbsp;&nbsp;|&nbsp;&nbsp; 💰 **Valor Liberado:** `{fmt_val(lib_val)}` &nbsp;&nbsp;|&nbsp;&nbsp; 📦 **Bruto:** `{fmt_val(sujo_val)}`",
-                unsafe_allow_html=True
-            )
-        else:
-            st.info("Nenhum pedido encontrado nesta categoria para o período selecionado.")
+        st.divider()
+        st.subheader("🔍 Consultar Pedido por ID (Financeiro)")
+        pedido_id_fin = st.text_input("Digite o ID do Pedido para ver os detalhes financeiros:").strip()
+        
+        if pedido_id_fin:
+            if col_id in df.columns:
+                resultado = df[df[col_id].astype(str).str.contains(pedido_id_fin, case=False, na=False)]
+                if not resultado.empty:
+                    st.success("✅ Pedido encontrado:")
+                    cols_fin = [c for c in [col_id, 'Nome do Produto', 'Total global', 'Ajuste por participação em ação comercial', 'Valor_Produto', 'Valor_Liberado', 'Valor_Sujo'] if c and c in resultado.columns]
+                    res_fmt = resultado[cols_fin].copy()
+                    for col_m in ['Valor_Produto', 'Valor_Liberado', 'Valor_Sujo']:
+                        if col_m in res_fmt.columns:
+                            res_fmt[col_m] = res_fmt[col_m].apply(fmt_val)
+                    st.dataframe(res_fmt, use_container_width=True)
+                else:
+                    st.error("❌ Pedido não encontrado.")
 
-    with tab_val:
-        exibir_tabela_e_montantes(validados_mask, p_val, l_val, s_val)
-    with tab_naopag:
-        exibir_tabela_e_montantes(nao_pago_mask, p_naopag, l_naopag, s_naopag, mostrar_motivo=True)
-    with tab_aenv:
-        exibir_tabela_e_montantes(a_enviar_mask, p_aenv, l_aenv, s_aenv)
-    with tab_env:
-        exibir_tabela_e_montantes(enviado_mask, p_env, l_env, s_env)
-    with tab_conc:
-        exibir_tabela_e_montantes(concluido_mask, p_conc, l_conc, s_conc)
-    with tab_canc:
-        exibir_tabela_e_montantes(cancelados_mask, p_canc, l_canc, s_canc, mostrar_motivo=True)
+    # ==================== PÁGINA: PEDIDOS ====================
+    elif pagina_selecionada == "Pedidos":
+        st.header(f"📦 Gestão de Pedidos ({opcao_tempo})")
+        
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
+        col1.metric("📦 Válidos", total_validos)
+        col2.metric("⏳ Não pago", nao_pago_cnt)
+        col3.metric("📤 A Enviar", a_enviar_cnt)
+        col4.metric("🚚 Enviado", enviado_cnt)
+        col5.metric("✅ Concluído", concluido_cnt)
+        col6.metric("❌ Cancelados", cancelados_cnt)
+        
+        st.divider()
+        
+        def calc_aba(mask):
+            p = df_periodo[mask]['Valor_Produto'].sum() if 'Valor_Produto' in df_periodo.columns else 0.0
+            l = df_periodo[mask]['Valor_Liberado'].sum() if 'Valor_Liberado' in df_periodo.columns else 0.0
+            s = df_periodo[mask]['Valor_Sujo'].sum() if 'Valor_Sujo' in df_periodo.columns else 0.0
+            return p, l, s
 
-    st.divider()
-    
-    st.subheader("🔍 Consultar Pedido Específico")
-    pedido_id = st.text_input("Digite o ID do Pedido (Ex: 230910ABCDEF):").strip()
-    
-    if pedido_id:
-        if col_id in df.columns:
-            resultado = df[df[col_id].astype(str).str.contains(pedido_id, case=False, na=False)]
-            
-            if not resultado.empty:
-                st.success(f"✅ Encontrado(s) registo(s) para este ID:")
-                cols_mostrar = [c for c in [col_id, col_status, col_motivo, 'Nome do Produto', 'Total global', 'Ajuste por participação em ação comercial', 'Valor_Produto', 'Valor_Liberado', 'Valor_Sujo', 'Data de criação do pedido'] if c and c in resultado.columns]
-                res_fmt = resultado[cols_mostrar].copy()
-                if 'Valor_Produto' in res_fmt.columns:
-                    res_fmt['Montante Produto'] = res_fmt['Valor_Produto'].apply(fmt_val)
-                    res_fmt = res_fmt.drop(columns=['Valor_Produto'])
-                if 'Valor_Liberado' in res_fmt.columns:
-                    res_fmt['Valor Liberado'] = res_fmt['Valor_Liberado'].apply(fmt_val)
-                    res_fmt = res_fmt.drop(columns=['Valor_Liberado'])
-                if 'Valor_Sujo' in res_fmt.columns:
-                    res_fmt['Montante Bruto'] = res_fmt['Valor_Sujo'].apply(fmt_val)
-                    res_fmt = res_fmt.drop(columns=['Valor_Sujo'])
-                st.dataframe(res_fmt, use_container_width=True)
+        p_val, l_val, s_val = calc_aba(validados_mask)
+        p_naopag, l_naopag, s_naopag = calc_aba(nao_pago_mask)
+        p_aenv, l_aenv, s_aenv = calc_aba(a_enviar_mask)
+        p_env, l_env, s_env = calc_aba(enviado_mask)
+        p_conc, l_conc, s_conc = calc_aba(concluido_mask)
+        p_canc, l_canc, s_canc = calc_aba(cancelados_mask)
+
+        tab_val, tab_naopag, tab_aenv, tab_env, tab_conc, tab_canc = st.tabs([
+            f"📦 Válidos ({total_validos})",
+            f"⏳ Não pago ({nao_pago_cnt})",
+            f"📤 A Enviar ({a_enviar_cnt})",
+            f"🚚 Enviado ({enviado_cnt})",
+            f"✅ Concluído ({concluido_cnt})",
+            f"❌ Cancelados ({cancelados_cnt})"
+        ])
+        
+        def exibir_tabela_e_montantes(mask_filtro, prod_val, lib_val, sujo_val, mostrar_motivo=False):
+            if mask_filtro.sum() > 0:
+                df_show = df_periodo[mask_filtro].copy()
+                cols_exibir = [col_id, 'Data de criação do pedido']
+                if 'Total global' in df_show.columns:
+                    cols_exibir.append('Total global')
+                if 'Valor_Produto' in df_show.columns:
+                    cols_exibir.append('Valor_Produto')
+                if 'Valor_Liberado' in df_show.columns:
+                    cols_exibir.append('Valor_Liberado')
+                if 'Valor_Sujo' in df_show.columns:
+                    cols_exibir.append('Valor_Sujo')
+                if col_status and col_status in df_show.columns:
+                    cols_exibir.append(col_status)
+                if mostrar_motivo and col_motivo and col_motivo in df_show.columns:
+                    cols_exibir.append(col_motivo)
+                if 'Nome do Produto' in df_show.columns:
+                    cols_exibir.append('Nome do Produto')
+                    
+                df_show_fmt = df_show[cols_exibir].copy()
+                if 'Valor_Produto' in df_show_fmt.columns:
+                    df_show_fmt['Montante Produto'] = df_show_fmt['Valor_Produto'].apply(fmt_val)
+                    df_show_fmt = df_show_fmt.drop(columns=['Valor_Produto'])
+                if 'Valor_Liberado' in df_show_fmt.columns:
+                    df_show_fmt['Valor Liberado'] = df_show_fmt['Valor_Liberado'].apply(fmt_val)
+                    df_show_fmt = df_show_fmt.drop(columns=['Valor_Liberado'])
+                if 'Valor_Sujo' in df_show_fmt.columns:
+                    df_show_fmt['Montante Bruto'] = df_show_fmt['Valor_Sujo'].apply(fmt_val)
+                    df_show_fmt = df_show_fmt.drop(columns=['Valor_Sujo'])
+                    
+                st.dataframe(df_show_fmt, use_container_width=True)
+                st.markdown(
+                    f"**Resumo da Categoria:** &nbsp;&nbsp; 🎯 **Renda Total:** `{fmt_val(prod_val)}` &nbsp;&nbsp;|&nbsp;&nbsp; 💰 **Valor Liberado:** `{fmt_val(lib_val)}` &nbsp;&nbsp;|&nbsp;&nbsp; 📦 **Bruto:** `{fmt_val(sujo_val)}`",
+                    unsafe_allow_html=True
+                )
             else:
-                st.error("❌ Pedido não encontrado.")
-        else:
-            st.error("A coluna de ID de pedido não existe nas planilhas.")
+                st.info("Nenhum pedido encontrado nesta categoria para o período selecionado.")
+
+        with tab_val:
+            exibir_tabela_e_montantes(validados_mask, p_val, l_val, s_val)
+        with tab_naopag:
+            exibir_tabela_e_montantes(nao_pago_mask, p_naopag, l_naopag, s_naopag, mostrar_motivo=True)
+        with tab_aenv:
+            exibir_tabela_e_montantes(a_enviar_mask, p_aenv, l_aenv, s_aenv)
+        with tab_env:
+            exibir_tabela_e_montantes(enviado_mask, p_env, l_env, s_env)
+        with tab_conc:
+            exibir_tabela_e_montantes(concluido_mask, p_conc, l_conc, s_conc)
+        with tab_canc:
+            exibir_tabela_e_montantes(cancelados_mask, p_canc, l_canc, s_canc, mostrar_motivo=True)
+
+    # ==================== PÁGINA: ESTATÍSTICAS ====================
+    elif pagina_selecionada == "Estatísticas":
+        st.header(f"📊 Estatísticas Gerais ({opcao_tempo})")
+        st.markdown("Visão geral consolidadas das operações e desempenho de vendas.")
+        
+        col_est1, col_est2, col_est3 = st.columns(3)
+        with col_est1:
+            st.metric("📦 Total de Pedidos Válidos", total_validos)
+        with col_est2:
+            st.metric("❌ Total de Cancelados", cancelados_cnt)
+        with col_est3:
+            st.metric("🎯 Ticket Médio (Renda por Pedido)", fmt_val(tot_produto_val / total_validos if total_validos > 0 else 0.0))
             
-    st.divider()
-    with st.expander("Ver lista de pedidos (Tabela Completa do Período)"):
-        tabela_visual = df_periodo.drop(columns=['Valor_Sujo', 'Valor_Produto', 'Valor_Liberado', 'Valor_Financeiro_Real'], errors='ignore')
-        if 'Data_Criacao' in tabela_visual.columns:
-            tabela_visual['Data Criação'] = tabela_visual['Data_Criacao'].dt.strftime('%d/%m/%Y %H:%M')
-        st.dataframe(tabela_visual, use_container_width=True)
+        st.divider()
+        st.subheader("📈 Resumo de Faturamento")
+        st.markdown(f"- **Montante de Produtos (Sua Renda):** `{fmt_val(tot_produto_val)}`")
+        st.markdown(f"- **Valor Já Liberado:** `{fmt_val(tot_liberado_val)}`")
+        st.markdown(f"- **Montante Bruto (Com Frete):** `{fmt_val(tot_sujo_val)}`")
+
 else:
     st.info("A pasta principal ou as subpastas 'pedidos' e 'financeiro' estão vazias ou a aguardar ficheiros no Google Drive!")
