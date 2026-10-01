@@ -126,9 +126,9 @@ if df is not None and not df.empty:
             fim = (inicio + pd.DateOffset(months=1))
             df_filtrado = df_filtrado[(df_filtrado[coluna_ativa_data] >= inicio) & (df_filtrado[coluna_ativa_data] < fim)]
         elif opcao_tempo == "Últimos 7 dias":
-            # Ajuste exato para janela de 7 dias civis fechados
-            inicio = ref_data - pd.Timedelta(days=6)
-            df_filtrado = df_filtrado[(df_filtrado[coluna_ativa_data] >= inicio) & (df_filtrado[coluna_ativa_data] <= ref_data + pd.Timedelta(days=1))]
+            # Usando exatamente 7 dias corridos retroativos a partir da data máxima da base
+            inicio = ref_data - pd.Timedelta(days=7)
+            df_filtrado = df_filtrado[(df_filtrado[coluna_ativa_data] > inicio) & (df_filtrado[coluna_ativa_data] <= ref_data)]
         elif opcao_tempo == "Últimos 30 dias":
             inicio = ref_data - pd.Timedelta(days=30)
             df_filtrado = df_filtrado[df_filtrado[coluna_ativa_data] >= inicio]
