@@ -133,23 +133,27 @@ if df is not None and not df.empty:
                 df_filtrado = df_filtrado[(df_filtrado['Data'] >= pd.to_datetime(datas[0])) & (df_filtrado['Data'] <= pd.to_datetime(datas[1]))]
                 
         # --- EXCLUI APENAS OS CANCELADOS/NÃO PAGOS PARA CONSIDERAR TUDO O QUE É VALIDO (618) ---
-        if 'Status do pedido' in df_filtrado.columns:
-            # Mantém tudo o que não seja cancelado ou não pago (ex: Concluído, Enviado, A Caminho, etc.)
+        col_status_nome = 'Status do pedido' if 'Status do pedido' in df_filtrado.columns else ('Status do Pedido' if 'Status do Pedido' in df_filtrado.columns else None)
+        
+        if col_status_nome:
             status_ignorados = ['cancelado', 'não pago', 'unpaid']
-            df_filtrado = df_filtrado[~df_filtrado['Status do pedido'].astype(str).str.strip().str.lower().isin(status_ignorados)]
+            df_filtrado = df_filtrado[~df_filtrado[col_status_nome].astype(str).str.strip().str.lower().isin(status_ignorados)]
                 
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # Cálculos principais
-    total_pedidos_validos = df_filtrado['ID do Pedido'].nunique() if 'ID do Pedido' in df_filtrado.columns else len(df_filtrado)
+    # Identifica nome correto da coluna de ID do pedido
+    col_id_nome = 'ID do Pedido' if 'ID do Pedido' in df_filtrado.columns else ('ID do pedido' if 'ID do pedido' in df_filtrado.columns else df_filtrado.columns[0])
+    
+    # Cálculos principais com segurança
+    total_pedidos_validos = df_filtrado[col_id_nome].nunique() if col_id_nome in df_filtrado.columns else len(df_filtrado)
     
     # Subdivisão Concluídos vs Em Andamento (Trânsito/Enviados)
-    if 'Status do pedido' in df_filtrado.columns:
-        concluidos = df_filtrado[df_filtrado['Status do pedido'].astype(str).str.strip().str.lower() == 'concluído']['ID do Pedido'].nunique()
+    concluidos = 0
+    em_andamento = 0
+    if col_status_nome and col_id_nome in df_filtrado.columns:
+        mask_concluidos = df_filtrado[col_status_nome].astype(str).str.strip().str.lower() == 'concluído'
+        concluidos = df_filtrado[mask_concluidos][col_id_nome].nunique()
         em_andamento = total_pedidos_validos - concluidos
-    else:
-        concluidos = 0
-        em_andamento = 0
 
     valor_total = df_filtrado['Valor_Numerico'].sum() if 'Valor_Numerico' in df_filtrado.columns else 0
     valor_formatado = f"R$ {valor_total:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
@@ -163,21 +167,21 @@ if df is not None and not df.empty:
     
     st.divider()
     
-    # Seletor para alternar qual status ver na tabela abaixo se desejar
     st.subheader("🔍 Consultar Pedido Específico")
     pedido_id = st.text_input("Digite o ID do Pedido (Ex: 230910ABCDEF):").strip()
     
     if pedido_id:
-        if 'ID do Pedido' in df.columns:
-            resultado = df[df['ID do Pedido'].astype(str).str.contains(pedido_id, case=False, na=False)]
+        if col_id_nome in df.columns:
+            resultado = df[df[col_id_nome].astype(str).str.contains(pedido_id, case=False, na=False)]
             
             if not resultado.empty:
                 st.success(f"✅ Encontrado(s) {len(resultado)} registo(s) para este ID:")
-                st.dataframe(resultado[['ID do Pedido', 'Status do pedido', 'Nome do Produto', 'Preço acordado', 'Quantidade', 'Hora do pagamento do pedido']], use_container_width=True)
+                cols_mostrar = [c for c in [col_id_nome, col_status_nome, 'Nome do Produto', 'Preço acordado', 'Quantidade', 'Hora do pagamento do pedido'] if c and c in resultado.columns]
+                st.dataframe(resultado[cols_mostrar], use_container_width=True)
             else:
                 st.error("❌ Pedido não encontrado.")
         else:
-            st.error("A coluna 'ID do Pedido' não existe nas planilhas.")
+            st.error("A coluna de ID de pedido não existe nas planilhas.")
             
     st.divider()
     with st.expander("Ver lista de pedidos (Tabela Completa)"):
