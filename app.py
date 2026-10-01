@@ -103,12 +103,12 @@ if df is not None and not df.empty:
     st.sidebar.header("🎛️ Filtros do Painel")
     
     tipo_data = st.sidebar.radio(
-        "Base de Data (Aplica-se ao Faturamento):",
+        "Base de Data:",
         ["Hora do Pagamento", "Data de Criação"]
     )
     
     opcao_tempo = st.sidebar.selectbox(
-        "Período (Aplica-se ao Faturamento):", 
+        "Período:", 
         ["Hoje", "Ontem", "Últimos 7 dias", "Este mês", "Todo o período", "Personalizado"]
     )
     
@@ -144,42 +144,36 @@ if df is not None and not df.empty:
             
     st.markdown("<br>", unsafe_allow_html=True)
     
-    col_id = 'ID do Pedido' if 'ID do Pedido' in df_filtrado.columns else ('ID do pedido' if 'ID do pedido' in df_filtrado.columns else df_filtrado.columns[0])
-    col_status = 'Status do pedido' if 'Status do pedido' in df_filtrado.columns else ('Status do Pedido' if 'Status do Pedido' in df_filtrado.columns else None)
+    col_id = 'ID do Pedido' if 'ID do Pedido' in df_periodo.columns else ('ID do pedido' if 'ID do pedido' in df_periodo.columns else df_periodo.columns[0])
+    col_status = 'Status do pedido' if 'Status do pedido' in df_periodo.columns else ('Status do Pedido' if 'Status do Pedido' in df_periodo.columns else None)
     
-    # --- STATUS GLOBAIS (CONSULTA GERAL SEM FILTRO DE DATA) ---
-    if col_status and col_status in df.columns:
-        s_geral = df[col_status].astype(str).str.strip().str.lower()
+    # --- CÁLCULOS FILTRADOS POR PERÍODO ---
+    if col_status and col_status in df_periodo.columns:
+        s = df_periodo[col_status].astype(str).str.strip().str.lower()
         
-        cancelados_geral = s_geral.str.contains('cancelado|devolução|retorno', na=False)
-        validados_geral = ~cancelados_geral & ~s_geral.str.contains('não pago|unpaid', na=False)
+        cancelados_mask = s.str.contains('cancelado|devolução|retorno', na=False)
+        validados_mask = ~cancelados_mask & ~s.str.contains('não pago|unpaid', na=False)
         
-        total_validos = df[validados_geral][col_id].nunique()
-        nao_pago = df[s_geral.str.contains('não pago|unpaid', na=False)][col_id].nunique()
-        a_enviar = df[validados_geral & s_geral.str.contains('enviar|processando|pronto', na=False)][col_id].nunique()
-        enviado = df[validados_geral & s_geral.str.contains('enviado|trânsito|caminho', na=False)][col_id].nunique()
-        concluido = df[validados_geral & s_geral.str.contains('concluído|concluido|entregue', na=False)][col_id].nunique()
-        cancelados = df[cancelados_geral][col_id].nunique()
+        total_validos = df_periodo[validados_mask][col_id].nunique()
+        nao_pago = df_periodo[s.str.contains('não pago|unpaid', na=False)][col_id].nunique()
+        a_enviar = df_periodo[validados_mask & s.str.contains('enviar|processando|pronto', na=False)][col_id].nunique()
+        enviado = df_periodo[validados_mask & s.str.contains('enviado|trânsito|caminho', na=False)][col_id].nunique()
+        concluido = df_periodo[validados_mask & s.str.contains('concluído|concluido|entregue', na=False)][col_id].nunique()
+        cancelados = df_periodo[cancelados_mask][col_id].nunique()
     else:
-        total_validos = df[col_id].nunique()
+        validados_mask = df_periodo.index.isin(df_periodo.index)
+        total_validos = df_periodo[col_id].nunique()
         nao_pago = 0
         a_enviar = 0
         enviado = 0
         concluido = total_validos
         cancelados = 0
 
-    # --- FATURAMENTO APENAS PARA O PERÍODO SELECIONADO ---
-    if col_status and col_status in df_periodo.columns:
-        s_p = df_periodo[col_status].astype(str).str.strip().str.lower()
-        validados_periodo = ~s_p.str.contains('cancelado|devolução|retorno|não pago|unpaid', na=False)
-    else:
-        validados_periodo = df_periodo.index.isin(df_periodo.index)
-
-    valor_total = df_periodo[validados_periodo]['Valor_Numerico'].sum() if 'Valor_Numerico' in df_periodo.columns else 0.0
+    valor_total = df_periodo[validados_mask]['Valor_Numerico'].sum() if 'Valor_Numerico' in df_periodo.columns else 0.0
     valor_formatado = f"R$ {valor_total:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
     
     # --- EXIBIÇÃO EM MÉTRICAS ESTILO SHOPEE ---
-    st.subheader("📊 Status de Pedidos (Geral / Atual)")
+    st.subheader(f"📊 Resumo de Pedidos ({opcao_tempo})")
     
     col1, col2, col3, col4, col5, col6 = st.columns(6)
     col1.metric("📦 Válidos", total_validos)
@@ -190,7 +184,7 @@ if df is not None and not df.empty:
     col6.metric("❌ Cancelados", cancelados)
     
     st.markdown("<br>", unsafe_allow_html=True)
-    st.metric(f"💰 Faturamento Total ({opcao_tempo})", valor_formatado)
+    st.metric(f"💰 Faturamento Total (Válidos)", valor_formatado)
     
     st.divider()
     
