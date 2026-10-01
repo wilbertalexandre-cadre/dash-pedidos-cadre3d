@@ -58,7 +58,7 @@ def carregar_dados_do_drive():
             
             df_limpo = df_completo.copy()
                 
-            # --- CONVERSÃO DAS DATAS (Validação por Data de Criação) ---
+            # --- CONVERSÃO DAS DATAS ---
             if 'Data de criação do pedido' in df_limpo.columns:
                 df_limpo['Data_Criacao'] = pd.to_datetime(df_limpo['Data de criação do pedido'], errors='coerce')
             else:
@@ -69,21 +69,36 @@ def carregar_dados_do_drive():
             else:
                 df_limpo['Data_Pagamento'] = pd.NaT
                 
-            # --- TRATAMENTO PRECISO DO VALOR USANDO 'Total global' ---
-            if 'Total global' in df_limpo.columns:
-                val_col = df_limpo['Total global']
-                if val_col.dtype == object:
-                    val_str = val_col.astype(str).str.replace('R$', '', regex=False).str.strip()
-                    val_str = val_str.str.replace(',', '.', regex=False)
-                    val_num = pd.to_numeric(val_str, errors='coerce').fillna(0)
+            # --- FUNÇÃO PARA LIMPEZA DE VALORES ---
+            def limpar_coluna_valor(serie):
+                if serie is None:
+                    return pd.Series(0.0, index=df_limpo.index)
+                if serie.dtype == object:
+                    s_str = serie.astype(str).str.replace('R$', '', regex=False).str.strip()
+                    s_str = s_str.str.replace(',', '.', regex=False)
+                    return pd.to_numeric(s_str, errors='coerce').fillna(0)
                 else:
-                    val_num = pd.to_numeric(val_col, errors='coerce').fillna(0)
-                df_limpo['Valor_Numerico'] = val_num
-            elif 'Preço acordado' in df_limpo.columns:
-                p_str = df_limpo['Preço acordado'].astype(str).str.replace('R$', '', regex=False).str.replace(',', '.', regex=False)
-                df_limpo['Valor_Numerico'] = pd.to_numeric(p_str, errors='coerce').fillna(0)
-            else:
-                df_limpo['Valor_Numerico'] = 0.0
+                    return pd.to_numeric(serie, errors='coerce').fillna(0)
+
+            # 1. Total Global (com frete - Montante Sujo)
+            total_global = limpar_coluna_valor(df_limpo['Total global']) if 'Total global' in df_limpo.columns else (
+                limpar_coluna_valor(df_limpo['Preço acordado']) if 'Preço acordado' in df_limpo.columns else 0.0
+            )
+
+            # 2. Componentes de Frete para dedução
+            est_frete = limpar_coluna_valor(df_limpo['Valor estimado do frete']) if 'Valor estimado do frete' in df_limpo.columns else 0.0
+            desc_frete = limpar_coluna_valor(df_limpo['Desconto de Frete Aproximado']) if 'Desconto de Frete Aproximado' in df_limpo.columns else 0.0
+
+            # 3. Ajuste por participação em ação comercial
+            ajuste_comercial = limpar_coluna_valor(df_limpo['Ajuste por participação em ação comercial']) if 'Ajuste por participação em ação comercial' in df_limpo.columns else 0.0
+
+            # --- CÁLCULOS FINAIS POR PEDIDO ---
+            # Montante Sujo (com frete e com ajuste comercial)
+            df_limpo['Valor_Sujo'] = total_global + ajuste_comercial
+
+            # Montante do Produto / Renda Líquida (Total global - (Frete Estimado - Desconto de Frete) + Ajuste Comercial)
+            frete_liquido = est_frete - desc_frete
+            df_limpo['Valor_Produto'] = total_global - frete_liquido + ajuste_comercial
                 
             return df_limpo
             
@@ -181,8 +196,13 @@ if df is not None and not df.empty:
         concluido_cnt = total_validos
         cancelados_cnt = 0
 
-    valor_total = df_periodo[validados_mask]['Valor_Numerico'].sum() if 'Valor_Numerico' in df_periodo.columns else 0.0
-    valor_formatado = f"R$ {valor_total:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+    # Função de formatação para Real (R$)
+    def fmt_val(val):
+        return f"R$ {val:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+
+    # Totais gerais (Válidos)
+    tot_produto_val = df_periodo[validados_mask]['Valor_Produto'].sum() if 'Valor_Produto' in df_periodo.columns else 0.0
+    tot_sujo_val = df_periodo[validados_mask]['Valor_Sujo'].sum() if 'Valor_Sujo' in df_periodo.columns else 0.0
     
     # --- EXIBIÇÃO EM MÉTRICAS ---
     st.subheader(f"📊 Resumo de Pedidos ({opcao_tempo})")
@@ -196,31 +216,39 @@ if df is not None and not df.empty:
     col6.metric("❌ Cancelados", cancelados_cnt)
     
     st.markdown("<br>", unsafe_allow_html=True)
-    st.metric(f"💰 Faturamento Total (Válidos)", valor_formatado)
+    
+    # Cartões de Faturamento (Destaque para Montante de Produto e Montante Sujo)
+    col_fat1, col_fat2 = st.columns(2)
+    with col_fat1:
+        st.metric("🎯 Montante de Produtos (Sem Frete / Sua Renda)", fmt_val(tot_produto_val))
+    with col_fat2:
+        st.metric("📦 Montante Bruto / Sujo (Com Frete)", fmt_val(tot_sujo_val))
     
     st.divider()
     
-    # --- FUNÇÃO AUXILIAR PARA FORMATAÇÃO DE MONTANTES ---
-    def fmt_val(val):
-        return f"R$ {val:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+    # --- CÁLCULOS POR ABA ---
+    def calc_aba(mask):
+        p = df_periodo[mask]['Valor_Produto'].sum() if 'Valor_Produto' in df_periodo.columns else 0.0
+        s = df_periodo[mask]['Valor_Sujo'].sum() if 'Valor_Sujo' in df_periodo.columns else 0.0
+        return p, s
 
-    val_validados = df_periodo[validados_mask]['Valor_Numerico'].sum() if 'Valor_Numerico' in df_periodo.columns else 0.0
-    val_naopago = df_periodo[nao_pago_mask]['Valor_Numerico'].sum() if 'Valor_Numerico' in df_periodo.columns else 0.0
-    val_aenviar = df_periodo[a_enviar_mask]['Valor_Numerico'].sum() if 'Valor_Numerico' in df_periodo.columns else 0.0
-    val_enviado = df_periodo[enviado_mask]['Valor_Numerico'].sum() if 'Valor_Numerico' in df_periodo.columns else 0.0
-    val_concluido = df_periodo[concluido_mask]['Valor_Numerico'].sum() if 'Valor_Numerico' in df_periodo.columns else 0.0
-    val_cancelados = df_periodo[cancelados_mask]['Valor_Numerico'].sum() if 'Valor_Numerico' in df_periodo.columns else 0.0
+    p_val, s_val = calc_aba(validados_mask)
+    p_naopag, s_naopag = calc_aba(nao_pago_mask)
+    p_aenv, s_aenv = calc_aba(a_enviar_mask)
+    p_env, s_env = calc_aba(enviado_mask)
+    p_conc, s_conc = calc_aba(concluido_mask)
+    p_canc, s_canc = calc_aba(cancelados_mask)
 
-    # --- DETALHAMENTO INTERATIVO POR ABAS (TABS) COM MONTANTES ---
+    # --- DETALHAMENTO INTERATIVO POR ABAS (TABS) COM AMBOS OS MONTANTES ---
     st.subheader("📋 Detalhamento dos Pedidos do Período")
     
     tab_val, tab_naopag, tab_aenv, tab_env, tab_conc, tab_canc = st.tabs([
-        f"📦 Válidos ({total_validos}) — {fmt_val(val_validados)}",
-        f"⏳ Não pago ({nao_pago_cnt}) — {fmt_val(val_naopago)}",
-        f"📤 A Enviar ({a_enviar_cnt}) — {fmt_val(val_aenviar)}",
-        f"🚚 Enviado ({enviado_cnt}) — {fmt_val(val_enviado)}",
-        f"✅ Concluído ({concluido_cnt}) — {fmt_val(val_concluido)}",
-        f"❌ Cancelados ({cancelados_cnt}) — {fmt_val(val_cancelados)}"
+        f"📦 Válidos ({total_validos}) — Prod: {fmt_val(p_val)} | Bruto: {fmt_val(s_val)}",
+        f"⏳ Não pago ({nao_pago_cnt}) — Prod: {fmt_val(p_naopag)} | Bruto: {fmt_val(s_naopag)}",
+        f"📤 A Enviar ({a_enviar_cnt}) — Prod: {fmt_val(p_aenv)} | Bruto: {fmt_val(s_aenv)}",
+        f"🚚 Enviado ({enviado_cnt}) — Prod: {fmt_val(p_env)} | Bruto: {fmt_val(s_env)}",
+        f"✅ Concluído ({concluido_cnt}) — Prod: {fmt_val(p_conc)} | Bruto: {fmt_val(s_conc)}",
+        f"❌ Cancelados ({cancelados_cnt}) — Prod: {fmt_val(p_canc)} | Bruto: {fmt_val(s_canc)}"
     ])
     
     def exibir_tabela(mask_filtro, mostrar_motivo=False):
@@ -229,8 +257,12 @@ if df is not None and not df.empty:
             cols_exibir = [col_id, 'Data de criação do pedido']
             if 'Total global' in df_show.columns:
                 cols_exibir.append('Total global')
-            elif 'Preço acordado' in df_show.columns:
-                cols_exibir.append('Preço acordado')
+            if 'Ajuste por participação em ação comercial' in df_show.columns:
+                cols_exibir.append('Ajuste por participação em ação comercial')
+            if 'Valor_Produto' in df_show.columns:
+                cols_exibir.append('Valor_Produto')
+            if 'Valor_Sujo' in df_show.columns:
+                cols_exibir.append('Valor_Sujo')
             if col_status and col_status in df_show.columns:
                 cols_exibir.append(col_status)
             if mostrar_motivo and col_motivo and col_motivo in df_show.columns:
@@ -238,7 +270,15 @@ if df is not None and not df.empty:
             if 'Nome do Produto' in df_show.columns:
                 cols_exibir.append('Nome do Produto')
                 
-            st.dataframe(df_show[cols_exibir], use_container_width=True)
+            df_show_fmt = df_show[cols_exibir].copy()
+            if 'Valor_Produto' in df_show_fmt.columns:
+                df_show_fmt['Montante Produto (Sem Frete)'] = df_show_fmt['Valor_Produto'].apply(fmt_val)
+                df_show_fmt = df_show_fmt.drop(columns=['Valor_Produto'])
+            if 'Valor_Sujo' in df_show_fmt.columns:
+                df_show_fmt['Montante Bruto (Com Frete)'] = df_show_fmt['Valor_Sujo'].apply(fmt_val)
+                df_show_fmt = df_show_fmt.drop(columns=['Valor_Sujo'])
+                
+            st.dataframe(df_show_fmt, use_container_width=True)
         else:
             st.info("Nenhum pedido encontrado nesta categoria para o período selecionado.")
 
@@ -271,8 +311,15 @@ if df is not None and not df.empty:
             
             if not resultado.empty:
                 st.success(f"✅ Encontrado(s) registo(s) para este ID:")
-                cols_mostrar = [c for c in [col_id, col_status, col_motivo, 'Nome do Produto', 'Total global', 'Data de criação do pedido'] if c and c in resultado.columns]
-                st.dataframe(resultado[cols_mostrar], use_container_width=True)
+                cols_mostrar = [c for c in [col_id, col_status, col_motivo, 'Nome do Produto', 'Total global', 'Ajuste por participação em ação comercial', 'Valor_Produto', 'Valor_Sujo', 'Data de criação do pedido'] if c and c in resultado.columns]
+                res_fmt = resultado[cols_mostrar].copy()
+                if 'Valor_Produto' in res_fmt.columns:
+                    res_fmt['Montante Produto'] = res_fmt['Valor_Produto'].apply(fmt_val)
+                    res_fmt = res_fmt.drop(columns=['Valor_Produto'])
+                if 'Valor_Sujo' in res_fmt.columns:
+                    res_fmt['Montante Bruto'] = res_fmt['Valor_Sujo'].apply(fmt_val)
+                    res_fmt = res_fmt.drop(columns=['Valor_Sujo'])
+                st.dataframe(res_fmt, use_container_width=True)
             else:
                 st.error("❌ Pedido não encontrado.")
         else:
@@ -280,7 +327,7 @@ if df is not None and not df.empty:
             
     st.divider()
     with st.expander("Ver lista de pedidos (Tabela Completa do Período)"):
-        tabela_visual = df_periodo.drop(columns=['Valor_Numerico'], errors='ignore')
+        tabela_visual = df_periodo.drop(columns=['Valor_Sujo', 'Valor_Produto'], errors='ignore')
         if 'Data_Criacao' in tabela_visual.columns:
             tabela_visual['Data Criação'] = tabela_visual['Data_Criacao'].dt.strftime('%d/%m/%Y %H:%M')
         st.dataframe(tabela_visual, use_container_width=True)
