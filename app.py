@@ -93,10 +93,7 @@ def carregar_dados_do_drive():
             ajuste_comercial = limpar_coluna_valor(df_limpo['Ajuste por participação em ação comercial']) if 'Ajuste por participação em ação comercial' in df_limpo.columns else 0.0
 
             # --- CÁLCULOS FINAIS POR PEDIDO ---
-            # Montante Sujo (com frete e com ajuste comercial)
             df_limpo['Valor_Sujo'] = total_global + ajuste_comercial
-
-            # Montante do Produto / Renda Líquida (Total global - (Frete Estimado - Desconto de Frete) + Ajuste Comercial)
             frete_liquido = est_frete - desc_frete
             df_limpo['Valor_Produto'] = total_global - frete_liquido + ajuste_comercial
                 
@@ -217,7 +214,6 @@ if df is not None and not df.empty:
     
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # Cartões de Faturamento (Destaque para Montante de Produto e Montante Sujo)
     col_fat1, col_fat2 = st.columns(2)
     with col_fat1:
         st.metric("🎯 Montante de Produtos (Sem Frete / Sua Renda)", fmt_val(tot_produto_val))
@@ -239,19 +235,19 @@ if df is not None and not df.empty:
     p_conc, s_conc = calc_aba(concluido_mask)
     p_canc, s_canc = calc_aba(cancelados_mask)
 
-    # --- DETALHAMENTO INTERATIVO POR ABAS (TABS) COM AMBOS OS MONTANTES ---
+    # --- DETALHAMENTO INTERATIVO POR ABAS (TABS) LIMPAS ---
     st.subheader("📋 Detalhamento dos Pedidos do Período")
     
     tab_val, tab_naopag, tab_aenv, tab_env, tab_conc, tab_canc = st.tabs([
-        f"📦 Válidos ({total_validos}) — Prod: {fmt_val(p_val)} | Bruto: {fmt_val(s_val)}",
-        f"⏳ Não pago ({nao_pago_cnt}) — Prod: {fmt_val(p_naopag)} | Bruto: {fmt_val(s_naopag)}",
-        f"📤 A Enviar ({a_enviar_cnt}) — Prod: {fmt_val(p_aenv)} | Bruto: {fmt_val(s_aenv)}",
-        f"🚚 Enviado ({enviado_cnt}) — Prod: {fmt_val(p_env)} | Bruto: {fmt_val(s_env)}",
-        f"✅ Concluído ({concluido_cnt}) — Prod: {fmt_val(p_conc)} | Bruto: {fmt_val(s_conc)}",
-        f"❌ Cancelados ({cancelados_cnt}) — Prod: {fmt_val(p_canc)} | Bruto: {fmt_val(s_canc)}"
+        f"📦 Válidos ({total_validos})",
+        f"⏳ Não pago ({nao_pago_cnt})",
+        f"📤 A Enviar ({a_enviar_cnt})",
+        f"🚚 Enviado ({enviado_cnt})",
+        f"✅ Concluído ({concluido_cnt})",
+        f"❌ Cancelados ({cancelados_cnt})"
     ])
     
-    def exibir_tabela(mask_filtro, mostrar_motivo=False):
+    def exibir_tabela_e_montantes(mask_filtro, prod_val, sujo_val, mostrar_motivo=False):
         if mask_filtro.sum() > 0:
             df_show = df_periodo[mask_filtro].copy()
             cols_exibir = [col_id, 'Data de criação do pedido']
@@ -279,26 +275,32 @@ if df is not None and not df.empty:
                 df_show_fmt = df_show_fmt.drop(columns=['Valor_Sujo'])
                 
             st.dataframe(df_show_fmt, use_container_width=True)
+            
+            # Exibe os montantes abaixo da tabela
+            st.markdown(
+                f"**Resumo da Categoria:** &nbsp;&nbsp; 🎯 **Montante de Produtos (Sua Renda):** `{fmt_val(prod_val)}` &nbsp;&nbsp;|&nbsp;&nbsp; 📦 **Montante Bruto (Com Frete):** `{fmt_val(sujo_val)}`",
+                unsafe_allow_html=True
+            )
         else:
             st.info("Nenhum pedido encontrado nesta categoria para o período selecionado.")
 
     with tab_val:
-        exibir_tabela(validados_mask)
+        exibir_tabela_e_montantes(validados_mask, p_val, s_val)
         
     with tab_naopag:
-        exibir_tabela(nao_pago_mask, mostrar_motivo=True)
+        exibir_tabela_e_montantes(nao_pago_mask, p_naopag, s_naopag, mostrar_motivo=True)
         
     with tab_aenv:
-        exibir_tabela(a_enviar_mask)
+        exibir_tabela_e_montantes(a_enviar_mask, p_aenv, s_aenv)
         
     with tab_env:
-        exibir_tabela(enviado_mask)
+        exibir_tabela_e_montantes(enviado_mask, p_env, s_env)
         
     with tab_conc:
-        exibir_tabela(concluido_mask)
+        exibir_tabela_e_montantes(concluido_mask, p_conc, s_conc)
         
     with tab_canc:
-        exibir_tabela(cancelados_mask, mostrar_motivo=True)
+        exibir_tabela_e_montantes(cancelados_mask, p_canc, s_canc, mostrar_motivo=True)
 
     st.divider()
     
