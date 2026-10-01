@@ -16,6 +16,8 @@ st.markdown("Acompanhe os seus resultados, pedidos e repasses financeiros exatos
 
 @st.cache_data(ttl=120)
 def carregar_dados_do_drive():
+    df_pedidos = pd.DataFrame()
+    df_financeiro = pd.DataFrame()
     try:
         cert_info = json.loads(st.secrets["google_credentials"])
         credenciais = service_account.Credentials.from_service_account_info(
@@ -110,7 +112,7 @@ def carregar_dados_do_drive():
         dfs_financeiro = ler_financeiro(pasta_financeiro_id)
         
         df_pedidos = pd.concat(dfs_pedidos, ignore_index=True) if dfs_pedidos else pd.DataFrame()
-        df_financeiro = pd.concat(dfs_financeiro, ignore_index=True) if df_financeiro else pd.DataFrame()
+        df_financeiro = pd.concat(dfs_financeiro, ignore_index=True) if dfs_financeiro else pd.DataFrame()
         
         if df_pedidos.empty:
             return pd.DataFrame()
@@ -450,7 +452,6 @@ if df is not None and not df.empty:
             geojson_brasil = carregar_geojson_brasil()
             
             if geojson_brasil:
-                # Gerar mapa coroplético oficial do Brasil
                 fig = px.choropleth(
                     df_mapa,
                     geojson=geojson_brasil,
@@ -471,7 +472,6 @@ if df is not None and not df.empty:
                     if evento_clique and "selection" in evento_clique:
                         pontos = evento_clique["selection"].get("points", [])
                         if pontos:
-                            # Tentar obter a localização clicada
                             estado_selecionado = pontos[0].get("location")
                 except:
                     pass
