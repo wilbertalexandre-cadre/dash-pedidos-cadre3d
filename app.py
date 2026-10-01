@@ -10,7 +10,7 @@ from googleapiclient.http import MediaIoBaseDownload
 st.set_page_config(page_title="Dashboard Cadre 3D", page_icon="📦", layout="wide")
 
 st.title("📦 Dashboard de Vendas - Cadre 3D")
-st.markdown("Acompanhe os seus resultados e consulte o estado dos pedidos.")
+st.markdown("Acompanhe os seus resultados e consulte o estado dos pedidos exatamente como na Shopee.")
 
 @st.cache_data(ttl=120)
 def carregar_dados_do_drive():
@@ -100,70 +100,74 @@ if df is not None and not df.empty:
         st.warning("⚠ Atenção: Não foi encontrada coluna de data válida.")
         df_filtrado = df
     else:
-        st.subheader("📊 Visão Geral")
+        st.sidebar.header("🎛️ Filtros do Painel")
         
-        col_filtro, col_data, _ = st.columns([2, 2, 2])
-        
-        with col_filtro:
-            opcao_tempo = st.selectbox(
-                "Filtrar por período (Pagamento):", 
-                ["Todo o período", "Esta semana", "Últimos 7 dias", "Este mês", "Últimos 30 dias", "Período personalizado"]
-            )
+        opcao_tempo = st.sidebar.selectbox(
+            "Período (Base: Pagamento):", 
+            ["Todo o período", "Este mês", "Últimos 30 dias", "Últimos 7 dias", "Personalizado"]
+        )
         
         hoje = pd.Timestamp.today().normalize()
         df_filtrado = df.copy()
         
         # Filtro de Tempo
-        if opcao_tempo == "Esta semana":
-            inicio = hoje - pd.Timedelta(days=hoje.weekday())
-            df_filtrado = df_filtrado[df_filtrado['Data'] >= inicio]
-        elif opcao_tempo == "Últimos 7 dias":
-            inicio = hoje - pd.Timedelta(days=7)
-            df_filtrado = df_filtrado[df_filtrado['Data'] >= inicio]
-        elif opcao_tempo == "Este mês":
+        if opcao_tempo == "Este mês":
             inicio = hoje.replace(day=1)
             df_filtrado = df_filtrado[df_filtrado['Data'] >= inicio]
         elif opcao_tempo == "Últimos 30 dias":
             inicio = hoje - pd.Timedelta(days=30)
             df_filtrado = df_filtrado[df_filtrado['Data'] >= inicio]
-        elif opcao_tempo == "Período personalizado":
-            with col_data:
-                datas = st.date_input("Intervalo:", [hoje - pd.Timedelta(days=7), hoje])
-            if len(datas) == 2:
-                df_filtrado = df_filtrado[(df_filtrado['Data'] >= pd.to_datetime(datas[0])) & (df_filtrado['Data'] <= pd.to_datetime(datas[1]))]
-                
-        # --- EXCLUI APENAS OS CANCELADOS/NÃO PAGOS PARA CONSIDERAR TUDO O QUE É VALIDO (618) ---
-        col_status_nome = 'Status do pedido' if 'Status do pedido' in df_filtrado.columns else ('Status do Pedido' if 'Status do Pedido' in df_filtrado.columns else None)
-        
-        if col_status_nome:
-            status_ignorados = ['cancelado', 'não pago', 'unpaid']
-            df_filtrado = df_filtrado[~df_filtrado[col_status_nome].astype(str).str.strip().str.lower().isin(status_ignorados)]
+        elif opcao_tempo == "Últimos 7 dias":
+            inicio = hoje - pd.Timedelta(days=7)
+            df_filtrado = df_filtrado[df_filtrado['Data'] >= inicio]
+        elif opcao_tempo == "Personalizado":
+            d_inicio = st.sidebar.date_input("Data Inicial", hoje - pd.Timedelta(days=30))
+            d_fim = st.sidebar.date_input("Data Final", hoje)
+            df_filtrado = df_filtrado[(df_filtrado['Data'] >= pd.to_datetime(d_inicio)) & (df_filtrado['Data'] <= pd.to_datetime(d_fim) + pd.Timedelta(days=1))]
                 
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # Identifica nome correto da coluna de ID do pedido
-    col_id_nome = 'ID do Pedido' if 'ID do Pedido' in df_filtrado.columns else ('ID do pedido' if 'ID do pedido' in df_filtrado.columns else df_filtrado.columns[0])
+    # Identifica colunas com segurança
+    col_id = 'ID do Pedido' if 'ID do Pedido' in df_filtrado.columns else ('ID do pedido' if 'ID do pedido' in df_filtrado.columns else df_filtrado.columns[0])
+    col_status = 'Status do pedido' if 'Status do pedido' in df_filtrado.columns else ('Status do Pedido' if 'Status do Pedido' in df_filtrado.columns else None)
     
-    # Cálculos principais com segurança
-    total_pedidos_validos = df_filtrado[col_id_nome].nunique() if col_id_nome in df_filtrado.columns else len(df_filtrado)
-    
-    # Subdivisão Concluídos vs Em Andamento (Trânsito/Enviados)
-    concluidos = 0
-    em_andamento = 0
-    if col_status_nome and col_id_nome in df_filtrado.columns:
-        mask_concluidos = df_filtrado[col_status_nome].astype(str).str.strip().str.lower() == 'concluído'
-        concluidos = df_filtrado[mask_concluidos][col_id_nome].nunique()
-        em_andamento = total_pedidos_validos - concluidos
+    # --- CÁLCULOS IDÊNTICOS ÀS ABAS DA SHOPEE ---
+    if col_status and col_status in df_filtrado.columns:
+        s = df_filtrado[col_status].astype(str).str.strip().str.lower()
+        
+        # Pedidos válidos (exclui cancelados / não pagos para somar os ativos)
+        validados_mask = ~s.isin(['cancelado', 'não pago', 'unpaid'])
+        total_validos = df_filtrado[validados_mask][col_id].nunique()
+        
+        nao_pago = df_filtrado[s.str.contains('não pago|unpaid', na=False)][col_id].nunique()
+        a_enviar = df_filtrado[s.str.contains('enviar|processando|pronto', na=False)][col_id].nunique()
+        enviado = df_filtrado[s.str.contains('enviado|trânsito|caminho', na=False)][col_id].nunique()
+        concluido = df_filtrado[s == 'concluído'][col_id].nunique()
+        cancelados = df_filtrado[s.str.contains('cancelado|devolução|retorno', na=False)][col_id].nunique()
+    else:
+        total_validos = df_filtrado[col_id].nunique()
+        nao_pago = 0
+        a_enviar = 0
+        enviado = 0
+        concluido = total_validos
+        cancelados = 0
 
-    valor_total = df_filtrado['Valor_Numerico'].sum() if 'Valor_Numerico' in df_filtrado.columns else 0
+    valor_total = df_filtrado[validados_mask]['Valor_Numerico'].sum() if 'Valor_Numerico' in df_filtrado.columns and col_status else df_filtrado['Valor_Numerico'].sum()
     valor_formatado = f"R$ {valor_total:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
     
-    # Exibe métricas detalhadas lado a lado
-    col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-    col_m1.metric("📦 Total Válidos (Shopee)", total_pedidos_validos)
-    col_m2.metric("✅ Concluídos", concluidos)
-    col_m3.metric("🚚 Em Trânsito / Outros", em_andamento)
-    col_m4.metric("💰 Faturamento Total", valor_formatado)
+    # --- EXIBIÇÃO EM ABAS / MÉTRICAS ESTILO SHOPEE ---
+    st.subheader("📊 Resumo de Pedidos (Padrão Shopee)")
+    
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
+    col1.metric("📦 Válidos", total_validos)
+    col2.metric("⏳ Não pago", nao_pago)
+    col3.metric("📤 A Enviar", a_enviar)
+    col4.metric("🚚 Enviado", enviado)
+    col5.metric("✅ Concluído", concluido)
+    col6.metric("❌ Cancelados", cancelados)
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.metric("💰 Faturamento Total (Válidos)", valor_formatado)
     
     st.divider()
     
@@ -171,12 +175,12 @@ if df is not None and not df.empty:
     pedido_id = st.text_input("Digite o ID do Pedido (Ex: 230910ABCDEF):").strip()
     
     if pedido_id:
-        if col_id_nome in df.columns:
-            resultado = df[df[col_id_nome].astype(str).str.contains(pedido_id, case=False, na=False)]
+        if col_id in df.columns:
+            resultado = df[df[col_id].astype(str).str.contains(pedido_id, case=False, na=False)]
             
             if not resultado.empty:
                 st.success(f"✅ Encontrado(s) {len(resultado)} registo(s) para este ID:")
-                cols_mostrar = [c for c in [col_id_nome, col_status_nome, 'Nome do Produto', 'Preço acordado', 'Quantidade', 'Hora do pagamento do pedido'] if c and c in resultado.columns]
+                cols_mostrar = [c for c in [col_id, col_status, 'Nome do Produto', 'Preço acordado', 'Quantidade', 'Hora do pagamento do pedido'] if c and c in resultado.columns]
                 st.dataframe(resultado[cols_mostrar], use_container_width=True)
             else:
                 st.error("❌ Pedido não encontrado.")
