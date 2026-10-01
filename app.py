@@ -58,16 +58,16 @@ def carregar_dados_do_drive():
             
             df_limpo = df_completo.copy()
                 
-            # --- CONVERSÃO DAS DATAS ---
-            if 'Hora do pagamento do pedido' in df_limpo.columns:
-                df_limpo['Data_Pagamento'] = pd.to_datetime(df_limpo['Hora do pagamento do pedido'], errors='coerce')
-            else:
-                df_limpo['Data_Pagamento'] = pd.NaT
-
+            # --- CONVERSÃO DAS DATAS (Validação primária por Data de Criação) ---
             if 'Data de criação do pedido' in df_limpo.columns:
                 df_limpo['Data_Criacao'] = pd.to_datetime(df_limpo['Data de criação do pedido'], errors='coerce')
             else:
                 df_limpo['Data_Criacao'] = pd.NaT
+
+            if 'Hora do pagamento do pedido' in df_limpo.columns:
+                df_limpo['Data_Pagamento'] = pd.to_datetime(df_limpo['Hora do pagamento do pedido'], errors='coerce')
+            else:
+                df_limpo['Data_Pagamento'] = pd.NaT
                 
             # --- TRATAMENTO PRECISO DO VALOR USANDO 'Total global' ---
             if 'Total global' in df_limpo.columns:
@@ -102,10 +102,8 @@ if df is not None and not df.empty:
     
     st.sidebar.header("🎛️ Filtros do Painel")
     
-    tipo_data = st.sidebar.radio(
-        "Base de Data:",
-        ["Hora do Pagamento", "Data de Criação"]
-    )
+    # A base de data fixa-se estritamente na Data de Criação do Pedido
+    coluna_ativa_data = 'Data_Criacao'
     
     opcao_tempo = st.sidebar.selectbox(
         "Período:", 
@@ -113,8 +111,6 @@ if df is not None and not df.empty:
     )
     
     df_filtrado = df.copy()
-    
-    coluna_ativa_data = 'Data_Pagamento' if tipo_data == "Hora do Pagamento" else 'Data_Criacao'
     
     if coluna_ativa_data in df_filtrado.columns:
         fuso_br = timezone(timedelta(hours=-3))
@@ -146,23 +142,36 @@ if df is not None and not df.empty:
     
     col_id = 'ID do Pedido' if 'ID do Pedido' in df_periodo.columns else ('ID do pedido' if 'ID do pedido' in df_periodo.columns else df_periodo.columns[0])
     col_status = 'Status do pedido' if 'Status do pedido' in df_periodo.columns else ('Status do Pedido' if 'Status do Pedido' in df_periodo.columns else None)
+    col_motivo = 'Cancelar Motivo' if 'Cancelar Motivo' in df_periodo.columns else None
     
-    # --- CÁLCULOS FILTRADOS POR PERÍODO (REGRA DE CANCELADOS RIGOROSA) ---
+    # --- TRATAMENTO INTELIGENTE DE CANCELADOS / NÃO PAGOS ---
     if col_status and col_status in df_periodo.columns:
         s = df_periodo[col_status].astype(str).str.strip().str.lower()
         
-        # Considera cancelado apenas se o status principal for explicitamente cancelado ou reembolso concluído
-        cancelados_mask = s.eq('cancelado') | s.str.contains('pedido cancelado|reembolsado', na=False)
-        validados_mask = ~cancelados_mask & ~s.str.contains('não pago|unpaid', na=False)
+        # Verifica se o motivo de cancelamento foi automático
+        if col_motivo and col_motivo in df_periodo.columns:
+            motivo = df_periodo[col_motivo].astype(str).str.strip().str.lower()
+            automatico_mask = motivo.str.contains('automático|automatico|sistema', na=False)
+        else:
+            automatico_mask = pd.Series(False, index=df_periodo.index)
+            
+        # Pedidos cancelados reais (excluindo os automáticos que vão para não pago)
+        cancelados_mask = (s.eq('cancelado') | s.str.contains('pedido cancelado|reembolsado', na=False)) & (~automatico_mask)
+        
+        # Não pago inclui os explicitamente não pagos + os cancelados automaticamente
+        nao_pago_mask = s.str.contains('não pago|unpaid', na=False) | automatico_mask
+        
+        validados_mask = ~cancelados_mask & ~nao_pago_mask
         
         total_validos = df_periodo[validados_mask][col_id].nunique()
-        nao_pago = df_periodo[s.str.contains('não pago|unpaid', na=False)][col_id].nunique()
+        nao_pago = df_periodo[nao_pago_mask][col_id].nunique()
         a_enviar = df_periodo[validados_mask & s.str.contains('enviar|processando|pronto', na=False)][col_id].nunique()
         enviado = df_periodo[validados_mask & s.str.contains('enviado|trânsito|caminho', na=False)][col_id].nunique()
         concluido = df_periodo[validados_mask & s.str.contains('concluído|concluido|entregue', na=False)][col_id].nunique()
         cancelados = df_periodo[cancelados_mask][col_id].nunique()
     else:
         validados_mask = df_periodo.index.isin(df_periodo.index)
+        cancelados_mask = pd.Series(False, index=df_periodo.index)
         total_validos = df_periodo[col_id].nunique()
         nao_pago = 0
         a_enviar = 0
@@ -221,6 +230,8 @@ if df is not None and not df.empty:
                 cols_exibir_c.append('Preço acordado')
             if col_status and col_status in df_c_show.columns:
                 cols_exibir_c.append(col_status)
+            if col_motivo and col_motivo in df_c_show.columns:
+                cols_exibir_c.append(col_motivo)
             if 'Nome do Produto' in df_c_show.columns:
                 cols_exibir_c.append('Nome do Produto')
                 
@@ -239,7 +250,7 @@ if df is not None and not df.empty:
             
             if not resultado.empty:
                 st.success(f"✅ Encontrado(s) registo(s) para este ID:")
-                cols_mostrar = [c for c in [col_id, col_status, 'Nome do Produto', 'Total global', 'Hora do pagamento do pedido'] if c and c in resultado.columns]
+                cols_mostrar = [c for c in [col_id, col_status, col_motivo, 'Nome do Produto', 'Total global', 'Data de criação do pedido'] if c and c in resultado.columns]
                 st.dataframe(resultado[cols_mostrar], use_container_width=True)
             else:
                 st.error("❌ Pedido não encontrado.")
@@ -249,8 +260,8 @@ if df is not None and not df.empty:
     st.divider()
     with st.expander("Ver lista de pedidos (Tabela Completa do Período)"):
         tabela_visual = df_periodo.drop(columns=['Valor_Numerico'], errors='ignore')
-        if 'Data_Pagamento' in tabela_visual.columns:
-            tabela_visual['Data Pagamento'] = tabela_visual['Data_Pagamento'].dt.strftime('%d/%m/%Y %H:%M')
+        if 'Data_Criacao' in tabela_visual.columns:
+            tabela_visual['Data Criação'] = tabela_visual['Data_Criacao'].dt.strftime('%d/%m/%Y %H:%M')
         st.dataframe(tabela_visual, use_container_width=True)
 else:
     st.info("A pasta está vazia ou a aguardar ficheiros. Adicione a sua primeira folha de cálculo no Google Drive!")
