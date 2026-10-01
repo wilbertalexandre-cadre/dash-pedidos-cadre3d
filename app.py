@@ -58,7 +58,7 @@ def carregar_dados_do_drive():
             
             df_limpo = df_completo.copy()
                 
-            # --- CONVERSÃO DAS DATAS (Validação primária por Data de Criação) ---
+            # --- CONVERSÃO DAS DATAS (Validação por Data de Criação) ---
             if 'Data de criação do pedido' in df_limpo.columns:
                 df_limpo['Data_Criacao'] = pd.to_datetime(df_limpo['Data de criação do pedido'], errors='coerce')
             else:
@@ -101,7 +101,6 @@ df = carregar_dados_do_drive()
 if df is not None and not df.empty:
     
     st.sidebar.header("🎛️ Filtros do Painel")
-    
     coluna_ativa_data = 'Data_Criacao'
     
     opcao_tempo = st.sidebar.selectbox(
@@ -143,7 +142,7 @@ if df is not None and not df.empty:
     col_status = 'Status do pedido' if 'Status do pedido' in df_periodo.columns else ('Status do Pedido' if 'Status do Pedido' in df_periodo.columns else None)
     col_motivo = 'Cancelar Motivo' if 'Cancelar Motivo' in df_periodo.columns else None
     
-    # --- TRATAMENTO INTELIGENTE DE CANCELADOS / NÃO PAGOS ---
+    # --- MÁSCARAS DE CLASSIFICAÇÃO RIGOROSA ---
     if col_status and col_status in df_periodo.columns:
         s = df_periodo[col_status].astype(str).str.strip().str.lower()
         
@@ -157,81 +156,98 @@ if df is not None and not df.empty:
         nao_pago_mask = s.str.contains('não pago|unpaid', na=False) | automatico_mask
         validados_mask = ~cancelados_mask & ~nao_pago_mask
         
+        a_enviar_mask = validados_mask & s.str.contains('enviar|processando|pronto', na=False)
+        enviado_mask = validados_mask & s.str.contains('enviado|trânsito|caminho', na=False)
+        concluido_mask = validados_mask & s.str.contains('concluído|concluido|entregue|o comprador pode pedir', na=False)
+        
         total_validos = df_periodo[validados_mask][col_id].nunique()
-        nao_pago = df_periodo[nao_pago_mask][col_id].nunique()
-        a_enviar = df_periodo[validados_mask & s.str.contains('enviar|processando|pronto', na=False)][col_id].nunique()
-        enviado = df_periodo[validados_mask & s.str.contains('enviado|trânsito|caminho', na=False)][col_id].nunique()
-        concluido = df_periodo[validados_mask & s.str.contains('concluído|concluido|entregue', na=False)][col_id].nunique()
-        cancelados = df_periodo[cancelados_mask][col_id].nunique()
+        nao_pago_cnt = df_periodo[nao_pago_mask][col_id].nunique()
+        a_enviar_cnt = df_periodo[a_enviar_mask][col_id].nunique()
+        enviado_cnt = df_periodo[enviado_mask][col_id].nunique()
+        concluido_cnt = df_periodo[concluido_mask][col_id].nunique()
+        cancelados_cnt = df_periodo[cancelados_mask][col_id].nunique()
     else:
         validados_mask = df_periodo.index.isin(df_periodo.index)
         cancelados_mask = pd.Series(False, index=df_periodo.index)
+        nao_pago_mask = pd.Series(False, index=df_periodo.index)
+        a_enviar_mask = pd.Series(False, index=df_periodo.index)
+        enviado_mask = pd.Series(False, index=df_periodo.index)
+        concluido_mask = validados_mask
+        
         total_validos = df_periodo[col_id].nunique()
-        nao_pago = 0
-        a_enviar = 0
-        enviado = 0
-        concluido = total_validos
-        cancelados = 0
+        nao_pago_cnt = 0
+        a_enviar_cnt = 0
+        enviado_cnt = 0
+        concluido_cnt = total_validos
+        cancelados_cnt = 0
 
     valor_total = df_periodo[validados_mask]['Valor_Numerico'].sum() if 'Valor_Numerico' in df_periodo.columns else 0.0
     valor_formatado = f"R$ {valor_total:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
     
-    # --- EXIBIÇÃO EM MÉTRICAS ESTILO SHOPEE ---
+    # --- EXIBIÇÃO EM MÉTRICAS ---
     st.subheader(f"📊 Resumo de Pedidos ({opcao_tempo})")
     
     col1, col2, col3, col4, col5, col6 = st.columns(6)
     col1.metric("📦 Válidos", total_validos)
-    col2.metric("⏳ Não pago", nao_pago)
-    col3.metric("📤 A Enviar", a_enviar)
-    col4.metric("🚚 Enviado", enviado)
-    col5.metric("✅ Concluído", concluido)
-    col6.metric("❌ Cancelados", cancelados)
+    col2.metric("⏳ Não pago", nao_pago_cnt)
+    col3.metric("📤 A Enviar", a_enviar_cnt)
+    col4.metric("🚚 Enviado", enviado_cnt)
+    col5.metric("✅ Concluído", concluido_cnt)
+    col6.metric("❌ Cancelados", cancelados_cnt)
     
     st.markdown("<br>", unsafe_allow_html=True)
     st.metric(f"💰 Faturamento Total (Válidos)", valor_formatado)
     
     st.divider()
     
-    # --- DETALHAMENTO DE PEDIDOS VÁLIDOS E CANCELADOS DO PERÍODO ---
+    # --- DETALHAMENTO INTERATIVO POR ABAS (TABS) ---
     st.subheader("📋 Detalhamento dos Pedidos do Período")
     
-    tab_val, tab_canc = st.tabs([f"✅ Pedidos Válidos ({total_validos})", f"❌ Pedidos Cancelados ({cancelados})"])
+    tab_val, tab_naopag, tab_aenv, tab_env, tab_conc, tab_canc = st.tabs([
+        f"📦 Válidos ({total_validos})",
+        f"⏳ Não pago ({nao_pago_cnt})",
+        f"📤 A Enviar ({a_enviar_cnt})",
+        f"🚚 Enviado ({enviado_cnt})",
+        f"✅ Concluído ({concluido_cnt})",
+        f"❌ Cancelados ({cancelados_cnt})"
+    ])
     
-    with tab_val:
-        if total_validos > 0:
-            df_v_show = df_periodo[validados_mask].copy()
+    def exibir_tabela(mask_filtro, mostrar_motivo=False):
+        if mask_filtro.sum() > 0:
+            df_show = df_periodo[mask_filtro].copy()
             cols_exibir = [col_id, 'Data de criação do pedido']
-            if 'Total global' in df_v_show.columns:
+            if 'Total global' in df_show.columns:
                 cols_exibir.append('Total global')
-            elif 'Preço acordado' in df_v_show.columns:
+            elif 'Preço acordado' in df_show.columns:
                 cols_exibir.append('Preço acordado')
-            if col_status and col_status in df_v_show.columns:
+            if col_status and col_status in df_show.columns:
                 cols_exibir.append(col_status)
-            if 'Nome do Produto' in df_v_show.columns:
+            if mostrar_motivo and col_motivo and col_motivo in df_show.columns:
+                cols_exibir.append(col_motivo)
+            if 'Nome do Produto' in df_show.columns:
                 cols_exibir.append('Nome do Produto')
                 
-            st.dataframe(df_v_show[cols_exibir], use_container_width=True)
+            st.dataframe(df_show[cols_exibir], use_container_width=True)
         else:
-            st.info("Nenhum pedido válido encontrado neste período.")
-            
+            st.info("Nenhum pedido encontrado nesta categoria para o período selecionado.")
+
+    with tab_val:
+        exibir_tabela(validados_mask)
+        
+    with tab_naopag:
+        exibir_tabela(nao_pago_mask, mostrar_motivo=True)
+        
+    with tab_aenv:
+        exibir_tabela(a_enviar_mask)
+        
+    with tab_env:
+        exibir_tabela(enviado_mask)
+        
+    with tab_conc:
+        exibir_tabela(concluido_mask)
+        
     with tab_canc:
-        if cancelados > 0:
-            df_c_show = df_periodo[cancelados_mask].copy()
-            cols_exibir_c = [col_id, 'Data de criação do pedido']
-            if 'Total global' in df_c_show.columns:
-                cols_exibir_c.append('Total global')
-            elif 'Preço acordado' in df_c_show.columns:
-                cols_exibir_c.append('Preço acordado')
-            if col_status and col_status in df_c_show.columns:
-                cols_exibir_c.append(col_status)
-            if col_motivo and col_motivo in df_c_show.columns:
-                cols_exibir_c.append(col_motivo)
-            if 'Nome do Produto' in df_c_show.columns:
-                cols_exibir_c.append('Nome do Produto')
-                
-            st.dataframe(df_c_show[cols_exibir_c], use_container_width=True)
-        else:
-            st.success("Nenhum pedido cancelado neste período! 🎉")
+        exibir_tabela(cancelados_mask, mostrar_motivo=True)
 
     st.divider()
     
