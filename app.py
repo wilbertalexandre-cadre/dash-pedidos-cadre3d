@@ -205,7 +205,7 @@ if df is not None and not df.empty:
     
     opcao_tempo = st.sidebar.selectbox(
         "Período:", 
-        ["Hoje", "Ontem", "Últimos 7 dias", "Este mês", "Todo o período", "Personalizado"]
+        ["Hoje", "Ontem", "Últimos 7 dias", "Este mês", "Mês anterior", "Todo o período", "Personalizado"]
     )
     
     df_filtrado = df.copy()
@@ -227,6 +227,11 @@ if df is not None and not df.empty:
             inicio_mes = hoje.replace(day=1)
             proximo_mes = (inicio_mes + pd.DateOffset(months=1))
             df_periodo = df_filtrado[(df_filtrado[coluna_ativa_data] >= inicio_mes) & (df_filtrado[coluna_ativa_data] < proximo_mes)]
+        elif opcao_tempo == "Mês anterior":
+            inicio_mes_atual = hoje.replace(day=1)
+            fim_mes_anterior = inicio_mes_atual - pd.Timedelta(days=1)
+            inicio_mes_anterior = fim_mes_anterior.replace(day=1)
+            df_periodo = df_filtrado[(df_filtrado[coluna_ativa_data] >= inicio_mes_anterior) & (df_filtrado[coluna_ativa_data] < inicio_mes_atual)]
         elif opcao_tempo == "Todo o período":
             df_periodo = df_filtrado.copy()
         elif opcao_tempo == "Personalizado":
@@ -419,14 +424,12 @@ if df is not None and not df.empty:
         st.divider()
         st.subheader("🗺️ Distribuição de Pedidos por Estado (UF)")
         
-        # Busca estritamente pela coluna 'UF' (que costuma vir na coluna BH)
         col_estado = next((c for c in df_periodo.columns if c.strip().upper() == 'UF'), None)
         
         if col_estado:
             df_validados_periodo = df_periodo[validados_mask].copy()
             df_validados_periodo['UF_Normalizada'] = df_validados_periodo[col_estado].astype(str).str.strip().str.upper()
             
-            # Agrupar por estado (UF)
             df_mapa = df_validados_periodo.groupby('UF_Normalizada').agg(
                 Quantidade=('ID do pedido' if 'ID do pedido' in df_validados_periodo.columns else df_validados_periodo.columns[0], 'nunique'),
                 Renda_Total=('Valor_Produto', 'sum')
