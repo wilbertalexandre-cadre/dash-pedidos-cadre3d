@@ -406,7 +406,7 @@ if df is not None and not df.empty:
 
     # ==================== PÁGINA: ESTATÍSTICAS ====================
     elif pagina_selecionada == "Estatísticas":
-        st.header(f"📊 Estatísticas Gerais e Mapa Geográfico ({opcao_tempo})")
+        st.header(f"📊 Estatísticas Gerais e Geográficas ({opcao_tempo})")
         
         col_est1, col_est2, col_est3 = st.columns(3)
         with col_est1:
@@ -417,93 +417,100 @@ if df is not None and not df.empty:
             st.metric("🎯 Ticket Médio (Renda por Pedido)", fmt_val(tot_produto_val / total_validos if total_validos > 0 else 0.0))
             
         st.divider()
-        st.subheader("🗺️ Distribuição Geográfica de Pedidos por Estado (Brasil)")
+        st.subheader("🗺️ Distribuição de Pedidos por Estado (Brasil)")
         
         # Identificar coluna de estado/UF na base de pedidos
         col_estado = next((c for c in df_periodo.columns if c.strip().lower() in ['estado', 'uf', 'província/estado', 'provincia/estado']), None)
         
         if col_estado:
             df_validados_periodo = df_periodo[validados_mask].copy()
-            df_validados_periodo['UF'] = df_validados_periodo[col_estado].astype(str).str.strip().str.upper()
             
-            # Agrupar por estado para o gráfico
-            df_mapa = df_validados_periodo.groupby('UF').agg(
-                Quantidade=('ID do pedido' if 'ID do pedido' in df_validados_periodo.columns else df_validados_periodo.columns[0], 'nunique'),
-                Renda_Total=('Valor_Produto', 'sum')
-            ).reset_index()
-            
-            total_geral_pedidos = df_mapa['Quantidade'].sum()
-            if total_geral_pedidos > 0:
-                df_mapa['Porcentagem'] = (df_mapa['Quantidade'] / total_geral_pedidos) * 100
-            else:
-                df_mapa['Porcentagem'] = 0.0
-                
-            df_mapa = df_mapa.sort_values(by='Quantidade', ascending=True) # Ordem crescente para barras horizontais ficarem bonitas
-            
-            # Gráfico de barras horizontais interativo com Plotly
-            fig = px.bar(
-                df_mapa,
-                x='Quantidade',
-                y='UF',
-                text=df_mapa['Porcentagem'].apply(lambda x: f"{x:.1f}%"),
-                orientation='h',
-                labels={'Quantidade': 'Volume de Pedidos', 'UF': 'Estado (UF)'},
-                title="Volume e Participação (%) por Estado"
-            )
-            fig.update_traces(textposition='outside')
-            fig.update_layout(margin={"r":10,"t":30,"l":10,"b":10}, height=450)
-            
-            evento_clique = st.plotly_chart(fig, use_container_width=True, on_select="rerun")
-            
-            # Capturar clique na barra do estado se houver seleção
-            estado_selecionado = None
-            try:
-                if evento_clique and "selection" in evento_clique:
-                    pontos = evento_clique["selection"].get("points", [])
-                    if pontos:
-                        estado_selecionado = pontos[0].get("y")
-            except:
-                pass
-                
-            if estado_selecionado:
-                st.divider()
-                st.subheader(f"📍 Detalhamento para o Estado: {estado_selecionado}")
-                
-                df_estado = df_validados_periodo[df_validados_periodo['UF'] == estado_selecionado]
-                qtd_est = df_estado[col_id].nunique()
-                renda_est = df_estado['Valor_Produto'].sum()
-                lib_est = df_estado['Valor_Liberado'].sum()
-                
-                c_est1, c_est2, c_est3 = st.columns(3)
-                c_est1.metric("📦 Pedidos no Estado", qtd_est)
-                c_est2.metric("🎯 Renda Total", fmt_val(renda_est))
-                c_est3.metric("💰 Valor Liberado", fmt_val(lib_est))
-                
-                st.markdown("##### 🏆 Top Produtos neste Estado")
-                col_prod = next((c for c in df_estado.columns if 'nome' in c.lower() and 'produto' in c.lower()), None)
-                if col_prod:
-                    top_prod = df_estado[col_prod].value_counts().reset_index()
-                    top_prod.columns = ['Produto', 'Quantidade Vendida']
-                    st.dataframe(top_prod.head(5), use_container_width=True)
-                else:
-                    st.info("Coluna de nome de produto não identificada para o ranking.")
-                    
-                st.markdown("##### 📋 Lista de Pedidos do Estado")
-                cols_est_show = [col_id, 'Data de criação do pedido', 'Valor_Produto', 'Valor_Liberado']
-                if col_prod:
-                    cols_est_show.append(col_prod)
-                df_est_fmt = df_estado[[c for c in cols_est_show if c in df_estado.columns]].copy()
-                if 'Valor_Produto' in df_est_fmt.columns:
-                    df_est_fmt['Montante Produto'] = df_est_fmt['Valor_Produto'].apply(fmt_val)
-                    df_est_fmt = df_est_fmt.drop(columns=['Valor_Produto'])
-                if 'Valor_Liberado' in df_est_fmt.columns:
-                    df_est_fmt['Valor Liberado'] = df_est_fmt['Valor_Liberado'].apply(fmt_val)
-                    df_est_fmt = df_est_fmt.drop(columns=['Valor_Liberado'])
-                st.dataframe(df_est_fmt, use_container_width=True)
-            else:
-                st.info("💡 **Dica:** Clique em cima de qualquer barra de estado no gráfico acima para ver os pedidos, valores e top produtos específicos daquela região.")
-        else:
-            st.warning("⚠️ Não foi encontrada uma coluna de 'Estado' ou 'UF' nas planilhas de pedidos da Shopee para gerar a distribuição geográfica.")
+            # Dicionário para converter nome do estado por extenso para sigla UF
+            mapa_estados = {
+                'ACRE': 'AC', 'ALAGOAS': 'AL', 'AMAPÁ': 'AP', 'AMAZONAS': 'AM', 'BAHIA': 'BA',
+                'CEARÁ': 'CE', 'DISTRITO FEDERAL': 'DF', 'ESPÍRITO SANTO': 'ES', 'GOIÁS': 'GO',
+                'MARANHÃO': 'MA', 'MATO GROSSO': 'MT', 'MATO GROSSO DO SUL': 'MS', 'MINAS GERAIS': 'MG',
+                'PARÁ': 'Compreendido perfeitamente! Como a coluna está com o nome do estado por extenso (por exemplo: *"Santa Catarina"*, *"São Paulo"*, *"Paraná"*), o script agora converte automaticamente esses nomes para as respectivas siglas de 2 letras (UFs) e também mantém o tratamento para quando os nomes vierem em minúsculas ou com espaços extras.
 
-else:
-    st.info("A pasta principal ou as subpastas 'pedidos' e 'financeiro' estão vazias ou a aguardar ficheiros no Google Drive!")
+Substitua todo o conteúdo do seu `app.py` por esta versão atualizada:
+
+```python
+import streamlit as st
+import pandas as pd
+import json
+import io
+import plotly.express as px
+from datetime import datetime, timedelta, timezone
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
+
+st.set_page_config(page_title="Dashboard Cadre 3D", page_icon="📦", layout="wide")
+
+st.title("📦 Dashboard de Vendas - Cadre 3D")
+st.markdown("Acompanhe os seus resultados, pedidos e repasses financeiros exatos da Shopee.")
+
+@st.cache_data(ttl=120)
+def carregar_dados_do_drive():
+    try:
+        cert_info = json.loads(st.secrets["google_credentials"])
+        credenciais = service_account.Credentials.from_service_account_info(
+            cert_info, scopes=['[https://www.googleapis.com/auth/drive.readonly](https://www.googleapis.com/auth/drive.readonly)']
+        )
+        servico = build('drive', 'v3', credentials=credenciais)
+        
+        pasta_principal_id = '1p0H9A9-0r8QCX34koCd3mrsyXmTtTzUQ'
+        
+        query_sub = f"'{pasta_principal_id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed=false"
+        res_sub = servico.files().list(q=query_sub, fields="files(id, name)").execute()
+        subpastas = res_sub.get('files', [])
+        
+        pasta_pedidos_id = None
+        pasta_financeiro_id = None
+        
+        for sp in subpastas:
+            nome_sp = sp['name'].strip().lower()
+            if 'pedido' in nome_sp:
+                pasta_pedidos_id = sp['id']
+            elif 'financeiro' in nome_sp or 'finan' in nome_sp:
+                pasta_financeiro_id = sp['id']
+                
+        def ler_pedidos(pasta_id):
+            if not pasta_id:
+                return []
+            q_arq = f"'{pasta_id}' in parents and trashed=false"
+            arquivos = servico.files().list(q=q_arq, fields="files(id, name, mimeType)").execute().get('files', [])
+            
+            dfs = []
+            for arq in arquivos:
+                request = servico.files().get_media(fileId=arq['id'])
+                if arq['mimeType'] == 'application/vnd.google-apps.spreadsheet':
+                    request = servico.files().export_media(fileId=arq['id'], mimeType='text/csv')
+                    arquivo_baixado = io.BytesIO(request.execute())
+                    df = pd.read_csv(arquivo_baixado)
+                else:
+                    arquivo_baixado = io.BytesIO()
+                    downloader = MediaIoBaseDownload(arquivo_baixado, request)
+                    done = False
+                    while done is False:
+                        status, done = downloader.next_chunk()
+                    arquivo_baixado.seek(0)
+                    if arq['name'].endswith('.csv'):
+                        df = pd.read_csv(arquivo_baixado)
+                    else:
+                        df = pd.read_excel(arquivo_baixado)
+                dfs.append(df)
+            return dfs
+
+        def ler_financeiro(pasta_id):
+            if not pasta_id:
+                return []
+            q_arq = f"'{pasta_id}' in parents and trashed=false"
+            arquivos = servico.files().list(q=q_arq, fields="files(id, name, mimeType)").execute().get('files', [])
+            
+            dfs = []
+            for arq in arquivos:
+                nome_arq = arq['name'].strip().lower()
+                if nome_arq.startswith('income'):
+                    request = servico.files().get_media(fileId=arq['id'])
+                    arquivo_baix
