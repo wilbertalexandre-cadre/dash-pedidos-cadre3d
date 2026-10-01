@@ -58,7 +58,7 @@ def carregar_dados_do_drive():
             
             df_limpo = df_completo.copy()
                 
-            # --- TRATAMENTO DA DATA OFICIAL: Hora do pagamento do pedido (Coluna L) ---
+            # --- TRATAMENTO DA DATA: Hora do pagamento do pedido (Coluna L) ---
             if 'Hora do pagamento do pedido' in df_limpo.columns:
                 df_limpo['Data'] = pd.to_datetime(df_limpo['Hora do pagamento do pedido'], errors='coerce')
             elif 'Data de criação do pedido' in df_limpo.columns:
@@ -66,7 +66,7 @@ def carregar_dados_do_drive():
             elif 'Data' in df_limpo.columns:
                 df_limpo['Data'] = pd.to_datetime(df_limpo['Data'], dayfirst=True, errors='coerce')
                 
-            # CÁLCULO DO VALOR UNITÁRIO DA LINHA: Preço acordado (R) * Quantidade (S)
+            # CÁLCULO DO VALOR: Preço acordado (R) * Quantidade (S)
             if 'Preço acordado' in df_limpo.columns and 'Quantidade' in df_limpo.columns:
                 preco = df_limpo['Preço acordado'].astype(str).str.replace('R$', '', regex=False)
                 preco = preco.str.replace('.', '', regex=False)
@@ -74,30 +74,14 @@ def carregar_dados_do_drive():
                 preco = pd.to_numeric(preco, errors='coerce').fillna(0)
                 
                 qtd = pd.to_numeric(df_limpo['Quantidade'], errors='coerce').fillna(0)
-                df_limpo['Valor_Item'] = preco * qtd
+                df_limpo['Valor_Numerico'] = preco * qtd
             elif 'Valor' in df_limpo.columns:
                 valor_seg = df_limpo['Valor'].astype(str).str.replace('R$', '', regex=False).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
-                df_limpo['Valor_Item'] = pd.to_numeric(valor_seg, errors='coerce').fillna(0)
+                df_limpo['Valor_Numerico'] = pd.to_numeric(valor_seg, errors='coerce').fillna(0)
             else:
-                df_limpo['Valor_Item'] = 0.0
+                df_limpo['Valor_Numerico'] = 0.0
                 
-            # --- AGRUPAMENTO POR ID DO PEDIDO (Considera 1 pedido por ID, soma valores e mantém a data de pagamento) ---
-            if 'ID do Pedido' in df_limpo.columns:
-                # Vamos consolidar por ID do pedido
-                regras_agrupamento = {
-                    'Valor_Item': 'sum',
-                    'Data': 'first'
-                }
-                if 'Status do pedido' in df_limpo.columns:
-                    regras_agrupamento['Status do pedido'] = 'first'
-                if 'Nome do Produto' in df_limpo.columns:
-                    regras_agrupamento['Nome do Produto'] = lambda x: ' + '.join(x.dropna().astype(str).unique())
-                
-                df_agrupado = df_limpo.groupby('ID do Pedido', as_index=False).agg(regras_agrupamento)
-                df_agrupado.rename(columns={'Valor_Item': 'Valor_Numerico'}, inplace=True)
-                return df_agrupado
-            else:
-                return df_limpo
+            return df_limpo
             
     except Exception as e:
         st.error(f"Erro de ligação com o Drive: {e}")
@@ -116,53 +100,70 @@ if df is not None and not df.empty:
         st.warning("⚠ Atenção: Não foi encontrada coluna de data válida.")
         df_filtrado = df
     else:
-        st.sidebar.header("🎛️ Filtros do Painel")
+        st.subheader("📊 Visão Geral")
         
-        opcao_tempo = st.sidebar.selectbox(
-            "Período (Base: Pagamento):", 
-            ["Todo o período", "Este mês", "Últimos 30 dias", "Últimos 7 dias", "Personalizado"]
-        )
+        col_filtro, col_data, _ = st.columns([2, 2, 2])
         
-        filtro_status = st.sidebar.selectbox(
-            "Estado dos pedidos:",
-            ["Apenas Concluídos (Padrão Shopee)", "Todos (Geral)"]
-        )
+        with col_filtro:
+            opcao_tempo = st.selectbox(
+                "Filtrar por período (Pagamento):", 
+                ["Todo o período", "Esta semana", "Últimos 7 dias", "Este mês", "Últimos 30 dias", "Período personalizado"]
+            )
         
         hoje = pd.Timestamp.today().normalize()
         df_filtrado = df.copy()
         
         # Filtro de Tempo
-        if opcao_tempo == "Este mês":
+        if opcao_tempo == "Esta semana":
+            inicio = hoje - pd.Timedelta(days=hoje.weekday())
+            df_filtrado = df_filtrado[df_filtrado['Data'] >= inicio]
+        elif opcao_tempo == "Últimos 7 dias":
+            inicio = hoje - pd.Timedelta(days=7)
+            df_filtrado = df_filtrado[df_filtrado['Data'] >= inicio]
+        elif opcao_tempo == "Este mês":
             inicio = hoje.replace(day=1)
             df_filtrado = df_filtrado[df_filtrado['Data'] >= inicio]
         elif opcao_tempo == "Últimos 30 dias":
             inicio = hoje - pd.Timedelta(days=30)
             df_filtrado = df_filtrado[df_filtrado['Data'] >= inicio]
-        elif opcao_tempo == "Últimos 7 dias":
-            inicio = hoje - pd.Timedelta(days=7)
-            df_filtrado = df_filtrado[df_filtrado['Data'] >= inicio]
-        elif opcao_tempo == "Personalizado":
-            d_inicio = st.sidebar.date_input("Data Inicial", hoje - pd.Timedelta(days=30))
-            d_fim = st.sidebar.date_input("Data Final", hoje)
-            df_filtrado = df_filtrado[(df_filtrado['Data'] >= pd.to_datetime(d_inicio)) & (df_filtrado['Data'] <= pd.to_datetime(d_fim) + pd.Timedelta(days=1))]
+        elif opcao_tempo == "Período personalizado":
+            with col_data:
+                datas = st.date_input("Intervalo:", [hoje - pd.Timedelta(days=7), hoje])
+            if len(datas) == 2:
+                df_filtrado = df_filtrado[(df_filtrado['Data'] >= pd.to_datetime(datas[0])) & (df_filtrado['Data'] <= pd.to_datetime(datas[1]))]
                 
-        # Filtro de Status
-        if filtro_status == "Apenas Concluídos (Padrão Shopee)" and 'Status do pedido' in df_filtrado.columns:
-            df_filtrado = df_filtrado[df_filtrado['Status do pedido'].str.lower() == 'concluído']
+        # --- EXCLUI APENAS OS CANCELADOS/NÃO PAGOS PARA CONSIDERAR TUDO O QUE É VALIDO (618) ---
+        if 'Status do pedido' in df_filtrado.columns:
+            # Mantém tudo o que não seja cancelado ou não pago (ex: Concluído, Enviado, A Caminho, etc.)
+            status_ignorados = ['cancelado', 'não pago', 'unpaid']
+            df_filtrado = df_filtrado[~df_filtrado['Status do pedido'].astype(str).str.strip().str.lower().isin(status_ignorados)]
                 
-    st.subheader("📊 Visão Geral (Consolidado por Pedido)")
+    st.markdown("<br>", unsafe_allow_html=True)
     
-    # Cada linha agora é um ID de pedido único consolidado
-    total_pedidos = len(df_filtrado)
+    # Cálculos principais
+    total_pedidos_validos = df_filtrado['ID do Pedido'].nunique() if 'ID do Pedido' in df_filtrado.columns else len(df_filtrado)
+    
+    # Subdivisão Concluídos vs Em Andamento (Trânsito/Enviados)
+    if 'Status do pedido' in df_filtrado.columns:
+        concluidos = df_filtrado[df_filtrado['Status do pedido'].astype(str).str.strip().str.lower() == 'concluído']['ID do Pedido'].nunique()
+        em_andamento = total_pedidos_validos - concluidos
+    else:
+        concluidos = 0
+        em_andamento = 0
+
     valor_total = df_filtrado['Valor_Numerico'].sum() if 'Valor_Numerico' in df_filtrado.columns else 0
     valor_formatado = f"R$ {valor_total:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
     
-    col_m1, col_m2 = st.columns(2)
-    col_m1.metric("📦 Total de Pedidos (IDs Únicos)", total_pedidos)
-    col_m2.metric("💰 Faturamento Total Consolidado", valor_formatado)
+    # Exibe métricas detalhadas lado a lado
+    col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+    col_m1.metric("📦 Total Válidos (Shopee)", total_pedidos_validos)
+    col_m2.metric("✅ Concluídos", concluidos)
+    col_m3.metric("🚚 Em Trânsito / Outros", em_andamento)
+    col_m4.metric("💰 Faturamento Total", valor_formatado)
     
     st.divider()
     
+    # Seletor para alternar qual status ver na tabela abaixo se desejar
     st.subheader("🔍 Consultar Pedido Específico")
     pedido_id = st.text_input("Digite o ID do Pedido (Ex: 230910ABCDEF):").strip()
     
@@ -171,15 +172,15 @@ if df is not None and not df.empty:
             resultado = df[df['ID do Pedido'].astype(str).str.contains(pedido_id, case=False, na=False)]
             
             if not resultado.empty:
-                st.success(f"✅ Encontrado(s) registo(s) para este ID:")
-                st.dataframe(resultado, use_container_width=True)
+                st.success(f"✅ Encontrado(s) {len(resultado)} registo(s) para este ID:")
+                st.dataframe(resultado[['ID do Pedido', 'Status do pedido', 'Nome do Produto', 'Preço acordado', 'Quantidade', 'Hora do pagamento do pedido']], use_container_width=True)
             else:
                 st.error("❌ Pedido não encontrado.")
         else:
             st.error("A coluna 'ID do Pedido' não existe nas planilhas.")
             
     st.divider()
-    with st.expander("Ver lista consolidada de pedidos"):
+    with st.expander("Ver lista de pedidos (Tabela Completa)"):
         tabela_visual = df_filtrado.drop(columns=['Valor_Numerico'], errors='ignore')
         if 'Data' in tabela_visual.columns:
             tabela_visual['Data'] = tabela_visual['Data'].dt.strftime('%d/%m/%Y %H:%M')
