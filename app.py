@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import json
 import io
-import requests
 import plotly.express as px
 from datetime import datetime, timedelta, timezone
 from google.oauth2 import service_account
@@ -189,17 +188,6 @@ def carregar_dados_do_drive():
     except Exception as e:
         st.error(f"Erro de ligação com o Drive: {e}")
         return None
-
-@st.cache_data(ttl=3600)
-def carregar_geojson_brasil():
-    url = "https://raw.githubusercontent.com/codeforamerica/click_that_hood/master/public/data/brazil-states.geojson"
-    try:
-        response = requests.get(url)
-        if response.status_code == 200:
-            return response.json()
-    except:
-        pass
-    return None
 
 col_vazia, col_btn = st.columns([4, 1])
 with col_btn:
@@ -442,74 +430,71 @@ if df is not None and not df.empty:
         
         if col_estado:
             df_validados_periodo = df_periodo[validados_mask].copy()
+            df_validados_periodo['UF_Normalizada'] = df_validados_periodo[col_estado].astype(str).str.strip().str.upper()
             
-            # Dicionário de mapeamento de sigla para o nome completo exato do estado no GeoJSON
-            mapa_sigla_para_nome = {
-                'AC': 'Acre', 'AL': 'Alagoas', 'AP': 'Amapá', 'AM': 'Amazonas',
-                'BA': 'Bahia', 'CE': 'Ceará', 'DF': 'Distrito Federal', 'ES': 'Espírito Santo',
-                'GO': 'Goiás', 'MA': 'Maranhão', 'MT': 'Mato Grosso', 'MS': 'Mato Grosso do Sul',
-                'MG': 'Minas Gerais', 'PA': 'Pará', 'PB': 'Paraíba', 'PR': 'Paraná',
-                'PE': 'Pernambuco', 'PI': 'Piauí', 'RJ': 'Rio de Janeiro', 'RN': 'Rio Grande do Norte',
-                'RS': 'Rio Grande do Sul', 'RO': 'Rondônia', 'RR': 'Roraima', 'SC': 'Santa Catarina',
-                'SP': 'São Paulo', 'SE': 'Sergipe', 'TO': 'Tocantins'
+            # Dicionário oficial de coordenadas geográficas (Latitude e Longitude) dos estados brasileiros para o mapa interativo
+            coords_estados = {
+                'AC': (-9.0238, -70.8120), 'AL': (-9.5713, -36.7820), 'AP': (1.4125, -51.7700),
+                'AM': (-3.4168, -65.8561), 'BA': (-12.5797, -41.7007), 'CE': (-5.4984, -39.3206),
+                'DF': (-15.7998, -47.8645), 'ES': (-19.1834, -40.3089), 'GO': (-15.8270, -49.8362),
+                'MA': (-4.9609, -45.2744), 'MT': (-12.6819, -56.9211), 'MS': (-20.7722, -54.7852),
+                'MG': (-18.5122, -44.5550), 'PA': (-3.4168, -52.2153), 'PB': (-7.2400, -36.7820),
+                'PR': (-25.2521, -52.0215), 'PE': (-8.8137, -36.9541), 'PI': (-7.7183, -42.7289),
+                'RJ': (-22.9068, -43.1729), 'RN': (-5.4092, -36.9441), 'RS': (-30.0346, -51.2177),
+                'RO': (-11.2993, -62.8150), 'RR': (1.8944, -61.4013), 'SC': (-27.2423, -50.2189),
+                'SP': (-23.5505, -46.6333), 'SE': (-10.5741, -37.3857), 'TO': (-10.1753, -48.2982)
             }
             
-            def converter_sigla_para_nome(val):
-                v_str = str(val).strip().upper()
-                return mapa_sigla_para_nome.get(v_str, v_str)
-
-            df_validados_periodo['Estado_Nome'] = df_validados_periodo[col_estado].apply(converter_sigla_para_nome)
-            
-            df_mapa = df_validados_periodo.groupby('Estado_Nome').agg(
+            df_mapa = df_validados_periodo.groupby('UF_Normalizada').agg(
                 Quantidade=('ID do pedido' if 'ID do pedido' in df_validados_periodo.columns else df_validados_periodo.columns[0], 'nunique'),
                 Renda_Total=('Valor_Produto', 'sum')
             ).reset_index()
             
-            geojson_brasil = carregar_geojson_brasil()
+            df_mapa['Lat'] = df_mapa['UF_Normalizada'].map(lambda x: coords_estados.get(x, (-14.2350, -51.9253))[0])
+            df_mapa['Lon'] = df_mapa['UF_Normalizada'].map(lambda x: coords_estados.get(x, (-14.2350, -51.9253))[1])
             
-            if geojson_brasil:
-                fig = px.choropleth(
-                    df_mapa,
-                    geojson=geojson_brasil,
-                    locations='Estado_Nome',
-                    featureidkey='properties.name',
-                    color='Quantidade',
-                    color_continuous_scale="Blues",
-                    hover_name='Estado_Nome',
-                    labels={'Quantidade': 'Volume de Pedidos'}
-                )
-                fig.update_geos(
-                    scope="south america",
-                    center={"lat": -14.2350, "lon": -51.9253},
-                    projection_scale=3.5,
-                    visible=True,
-                    showcountries=True, countrycolor="lightgray",
-                    showcoastlines=True, coastlinecolor="lightgray",
-                    showland=True, landcolor="rgb(245, 245, 245)"
-                )
-                fig.update_layout(margin={"r":0, "t":0, "l":0, "b":0}, height=550)
+            # Gráfico de dispersão geográfica sobre o mapa do Brasil
+            fig = px.scatter_geo(
+                df_mapa,
+                lat='Lat',
+                lon='Lon',
+                size='Quantidade',
+                color='Quantidade',
+                hover_name='UF_Normalizada',
+                color_continuous_scale="Blues",
+                size_max=45,
+                projection="mercator",
+                labels={'Quantidade': 'Volume de Pedidos'}
+            )
+            
+            fig.update_geos(
+                fitbounds="locations",
+                visible=True,
+                showcountries=True, countrycolor="RebeccaPurple",
+                showcoastlines=True, coastlinecolor="RebeccaPurple",
+                showland=True, landcolor="rgb(240, 242, 245)"
+            )
+            fig.update_layout(margin={"r":0, "t":0, "l":0, "b":0}, height=550)
+            
+            evento_clique = st.plotly_chart(fig, use_container_width=True, on_select="rerun")
+            
+            estado_selecionado = None
+            try:
+                if evento_clique and "selection" in evento_clique:
+                    pontos = evento_clique["selection"].get("points", [])
+                    if pontos:
+                        # Obter o índice ou hover_name do ponto clicado
+                        idx = pontos[0].get("pointIndex")
+                        if idx is not None and idx < len(df_mapa):
+                            estado_selecionado = df_mapa.iloc[idx]['UF_Normalizada']
+            except:
+                pass
                 
-                evento_clique = st.plotly_chart(fig, use_container_width=True, on_select="rerun")
-                
-                estado_selecionado = None
-                try:
-                    if evento_clique and "selection" in evento_clique:
-                        pontos = evento_clique["selection"].get("points", [])
-                        if pontos:
-                            estado_selecionado = pontos[0].get("location")
-                except:
-                    pass
-            else:
-                st.warning("⚠️ Não foi possível carregar a malha do mapa. Exibindo em formato de barras.")
-                fig = px.bar(df_mapa, x='Quantidade', y='Estado_Nome', orientation='h')
-                evento_clique = st.plotly_chart(fig, use_container_width=True, on_select="rerun")
-                estado_selecionado = None
-
             if estado_selecionado:
                 st.divider()
                 st.subheader(f"📍 Detalhamento para o Estado: {estado_selecionado}")
                 
-                df_estado = df_validados_periodo[df_validados_periodo['Estado_Nome'] == estado_selecionado]
+                df_estado = df_validados_periodo[df_validados_periodo['UF_Normalizada'] == estado_selecionado]
                 qtd_est = df_estado[col_id].nunique()
                 renda_est = df_estado['Valor_Produto'].sum()
                 lib_est = df_estado['Valor_Liberado'].sum()
@@ -541,7 +526,7 @@ if df is not None and not df.empty:
                     df_est_fmt = df_est_fmt.drop(columns=['Valor_Liberado'])
                 st.dataframe(df_est_fmt, use_container_width=True)
             else:
-                st.info("💡 **Dica:** Clique em cima de qualquer estado no mapa do Brasil acima para visualizar os pedidos, valores e produtos mais vendidos daquela região.")
+                st.info("💡 **Dica:** Clique em cima de qualquer bolha de estado no mapa do Brasil acima para visualizar os pedidos, valores e produtos mais vendidos daquela região.")
         else:
             st.warning("⚠️ Não foi encontrada uma coluna com o título 'UF' nas planilhas de pedidos da Shopee.")
 
