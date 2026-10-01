@@ -58,7 +58,7 @@ def carregar_dados_do_drive():
             
             df_limpo = df_completo.copy()
                 
-            # --- TRATAMENTO DA DATA OFICIAL: Hora do pagamento do pedido ---
+            # --- TRATAMENTO DA DATA OFICIAL: Hora do pagamento do pedido (Coluna L) ---
             if 'Hora do pagamento do pedido' in df_limpo.columns:
                 df_limpo['Data'] = pd.to_datetime(df_limpo['Hora do pagamento do pedido'], errors='coerce')
             elif 'Data de criação do pedido' in df_limpo.columns:
@@ -66,7 +66,7 @@ def carregar_dados_do_drive():
             elif 'Data' in df_limpo.columns:
                 df_limpo['Data'] = pd.to_datetime(df_limpo['Data'], dayfirst=True, errors='coerce')
                 
-            # CÁLCULO DO VALOR: Preço acordado * Quantidade
+            # CÁLCULO DO VALOR UNITÁRIO DA LINHA: Preço acordado (R) * Quantidade (S)
             if 'Preço acordado' in df_limpo.columns and 'Quantidade' in df_limpo.columns:
                 preco = df_limpo['Preço acordado'].astype(str).str.replace('R$', '', regex=False)
                 preco = preco.str.replace('.', '', regex=False)
@@ -74,14 +74,30 @@ def carregar_dados_do_drive():
                 preco = pd.to_numeric(preco, errors='coerce').fillna(0)
                 
                 qtd = pd.to_numeric(df_limpo['Quantidade'], errors='coerce').fillna(0)
-                df_limpo['Valor_Numerico'] = preco * qtd
+                df_limpo['Valor_Item'] = preco * qtd
             elif 'Valor' in df_limpo.columns:
                 valor_seg = df_limpo['Valor'].astype(str).str.replace('R$', '', regex=False).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
-                df_limpo['Valor_Numerico'] = pd.to_numeric(valor_seg, errors='coerce').fillna(0)
+                df_limpo['Valor_Item'] = pd.to_numeric(valor_seg, errors='coerce').fillna(0)
             else:
-                df_limpo['Valor_Numerico'] = 0.0
+                df_limpo['Valor_Item'] = 0.0
                 
-            return df_limpo
+            # --- AGRUPAMENTO POR ID DO PEDIDO (Considera 1 pedido por ID, soma valores e mantém a data de pagamento) ---
+            if 'ID do Pedido' in df_limpo.columns:
+                # Vamos consolidar por ID do pedido
+                regras_agrupamento = {
+                    'Valor_Item': 'sum',
+                    'Data': 'first'
+                }
+                if 'Status do pedido' in df_limpo.columns:
+                    regras_agrupamento['Status do pedido'] = 'first'
+                if 'Nome do Produto' in df_limpo.columns:
+                    regras_agrupamento['Nome do Produto'] = lambda x: ' + '.join(x.dropna().astype(str).unique())
+                
+                df_agrupado = df_limpo.groupby('ID do Pedido', as_index=False).agg(regras_agrupamento)
+                df_agrupado.rename(columns={'Valor_Item': 'Valor_Numerico'}, inplace=True)
+                return df_agrupado
+            else:
+                return df_limpo
             
     except Exception as e:
         st.error(f"Erro de ligação com o Drive: {e}")
@@ -109,7 +125,7 @@ if df is not None and not df.empty:
         
         filtro_status = st.sidebar.selectbox(
             "Estado dos pedidos:",
-            ["Todos (Geral)", "Apenas Concluídos"]
+            ["Apenas Concluídos (Padrão Shopee)", "Todos (Geral)"]
         )
         
         hoje = pd.Timestamp.today().normalize()
@@ -131,32 +147,20 @@ if df is not None and not df.empty:
             df_filtrado = df_filtrado[(df_filtrado['Data'] >= pd.to_datetime(d_inicio)) & (df_filtrado['Data'] <= pd.to_datetime(d_fim) + pd.Timedelta(days=1))]
                 
         # Filtro de Status
-        if filtro_status == "Apenas Concluídos" and 'Status do pedido' in df_filtrado.columns:
+        if filtro_status == "Apenas Concluídos (Padrão Shopee)" and 'Status do pedido' in df_filtrado.columns:
             df_filtrado = df_filtrado[df_filtrado['Status do pedido'].str.lower() == 'concluído']
                 
-    st.subheader("📊 Visão Geral")
+    st.subheader("📊 Visão Geral (Consolidado por Pedido)")
     
-    total_pedidos_unicos = df_filtrado['ID do Pedido'].nunique() if 'ID do Pedido' in df_filtrado.columns else len(df_filtrado)
-    total_itens_vendidos = len(df_filtrado)
+    # Cada linha agora é um ID de pedido único consolidado
+    total_pedidos = len(df_filtrado)
     valor_total = df_filtrado['Valor_Numerico'].sum() if 'Valor_Numerico' in df_filtrado.columns else 0
     valor_formatado = f"R$ {valor_total:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
     
-    col_m1, col_m2, col_m3 = st.columns(3)
-    col_m1.metric("📦 Pedidos Únicos (IDs Distintos)", total_pedidos_unicos)
-    col_m2.metric("🏷️ Total de Linhas / Itens", total_itens_vendidos)
-    col_m3.metric("💰 Faturamento Total", valor_formatado)
+    col_m1, col_m2 = st.columns(2)
+    col_m1.metric("📦 Total de Pedidos (IDs Únicos)", total_pedidos)
+    col_m2.metric("💰 Faturamento Total Consolidado", valor_formatado)
     
-    # --- DIAGNÓSTICO DOS 10 PEDIDOS ---
-    st.markdown("---")
-    st.subheader("🔎 Diagnóstico de Status dos Pedidos (Para encontrar os 10 de diferença)")
-    if 'Status do pedido' in df.columns and 'ID do Pedido' in df.columns:
-        # Agrupa por status do pedido para vermos exatamente quantos pedidos únicos existem em cada categoria
-        diagnostico = df.groupby('Status do pedido')['ID do Pedido'].nunique().reset_index()
-        diagnostico.columns = ['Status do Pedido', 'Quantidade de Pedidos Únicos']
-        st.dataframe(diagnostico, use_container_width=True)
-    else:
-        st.info("Colunas de status ou ID não disponíveis para diagnóstico.")
-        
     st.divider()
     
     st.subheader("🔍 Consultar Pedido Específico")
@@ -167,15 +171,15 @@ if df is not None and not df.empty:
             resultado = df[df['ID do Pedido'].astype(str).str.contains(pedido_id, case=False, na=False)]
             
             if not resultado.empty:
-                st.success(f"✅ Encontrado(s) {len(resultado)} registo(s) para este ID:")
-                st.dataframe(resultado[['ID do Pedido', 'Status do pedido', 'Nome do Produto', 'Preço acordado', 'Quantidade', 'Hora do pagamento do pedido']], use_container_width=True)
+                st.success(f"✅ Encontrado(s) registo(s) para este ID:")
+                st.dataframe(resultado, use_container_width=True)
             else:
                 st.error("❌ Pedido não encontrado.")
         else:
             st.error("A coluna 'ID do Pedido' não existe nas planilhas.")
             
     st.divider()
-    with st.expander("Ver lista de pedidos (Tabela Completa)"):
+    with st.expander("Ver lista consolidada de pedidos"):
         tabela_visual = df_filtrado.drop(columns=['Valor_Numerico'], errors='ignore')
         if 'Data' in tabela_visual.columns:
             tabela_visual['Data'] = tabela_visual['Data'].dt.strftime('%d/%m/%Y %H:%M')
