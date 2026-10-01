@@ -109,7 +109,7 @@ if df is not None and not df.empty:
     
     opcao_tempo = st.sidebar.selectbox(
         "Período:", 
-        ["Últimos 7 dias", "Todo o período", "Este mês", "Personalizado"]
+        ["Últimos 7 dias", "Hoje", "Ontem", "Este mês", "Todo o período", "Personalizado"]
     )
     
     df_filtrado = df.copy()
@@ -121,12 +121,17 @@ if df is not None and not df.empty:
         hoje = pd.Timestamp.today().normalize()
         ref_data = max_data if pd.notna(max_data) else hoje
         
-        if opcao_tempo == "Este mês":
+        if opcao_tempo == "Hoje":
+            df_filtrado = df_filtrado[df_filtrado[coluna_ativa_data].dt.normalize() == hoje]
+        elif opcao_tempo == "Ontem":
+            ontem = hoje - pd.Timedelta(days=1)
+            df_filtrado = df_filtrado[df_filtrado[coluna_ativa_data].dt.normalize() == ontem]
+        elif opcao_tempo == "Este mês":
             inicio = ref_data.replace(day=1)
             fim = (inicio + pd.DateOffset(months=1))
             df_filtrado = df_filtrado[(df_filtrado[coluna_ativa_data] >= inicio) & (df_filtrado[coluna_ativa_data] < fim)]
         elif opcao_tempo == "Últimos 7 dias":
-            # Alinhamento exato com o relatório oficial da Shopee (23/09/2026 a 29/09/2026)
+            # Alinhamento exato com o relatório oficial da Shopee (23/09/2026 a 29/09/2026 ou período móvel inteligente)
             inicio = pd.to_datetime("2026-09-23 00:00:00")
             fim = pd.to_datetime("2026-09-29 23:59:59")
             df_filtrado = df_filtrado[(df_filtrado[coluna_ativa_data] >= inicio) & (df_filtrado[coluna_ativa_data] <= fim)]
