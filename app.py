@@ -442,9 +442,25 @@ if df is not None and not df.empty:
         
         if col_estado:
             df_validados_periodo = df_periodo[validados_mask].copy()
-            df_validados_periodo['UF_Normalizada'] = df_validados_periodo[col_estado].astype(str).str.strip().str.upper()
             
-            df_mapa = df_validados_periodo.groupby('UF_Normalizada').agg(
+            # Dicionário de mapeamento de sigla para o nome completo exato do estado no GeoJSON
+            mapa_sigla_para_nome = {
+                'AC': 'Acre', 'AL': 'Alagoas', 'AP': 'Amapá', 'AM': 'Amazonas',
+                'BA': 'Bahia', 'CE': 'Ceará', 'DF': 'Distrito Federal', 'ES': 'Espírito Santo',
+                'GO': 'Goiás', 'MA': 'Maranhão', 'MT': 'Mato Grosso', 'MS': 'Mato Grosso do Sul',
+                'MG': 'Minas Gerais', 'PA': 'Pará', 'PB': 'Paraíba', 'PR': 'Paraná',
+                'PE': 'Pernambuco', 'PI': 'Piauí', 'RJ': 'Rio de Janeiro', 'RN': 'Rio Grande do Norte',
+                'RS': 'Rio Grande do Sul', 'RO': 'Rondônia', 'RR': 'Roraima', 'SC': 'Santa Catarina',
+                'SP': 'São Paulo', 'SE': 'Sergipe', 'TO': 'Tocantins'
+            }
+            
+            def converter_sigla_para_nome(val):
+                v_str = str(val).strip().upper()
+                return mapa_sigla_para_nome.get(v_str, v_str)
+
+            df_validados_periodo['Estado_Nome'] = df_validados_periodo[col_estado].apply(converter_sigla_para_nome)
+            
+            df_mapa = df_validados_periodo.groupby('Estado_Nome').agg(
                 Quantidade=('ID do pedido' if 'ID do pedido' in df_validados_periodo.columns else df_validados_periodo.columns[0], 'nunique'),
                 Renda_Total=('Valor_Produto', 'sum')
             ).reset_index()
@@ -455,11 +471,11 @@ if df is not None and not df.empty:
                 fig = px.choropleth(
                     df_mapa,
                     geojson=geojson_brasil,
-                    locations='UF_Normalizada',
-                    featureidkey='properties.sigla',
+                    locations='Estado_Nome',
+                    featureidkey='properties.name',
                     color='Quantidade',
                     color_continuous_scale="Blues",
-                    hover_name='UF_Normalizada',
+                    hover_name='Estado_Nome',
                     labels={'Quantidade': 'Volume de Pedidos'}
                 )
                 fig.update_geos(
@@ -467,8 +483,8 @@ if df is not None and not df.empty:
                     center={"lat": -14.2350, "lon": -51.9253},
                     projection_scale=3.5,
                     visible=True,
-                    showcountries=True, countrycolor="RebeccaPurple",
-                    showcoastlines=True, coastlinecolor="RebeccaPurple",
+                    showcountries=True, countrycolor="lightgray",
+                    showcoastlines=True, coastlinecolor="lightgray",
                     showland=True, landcolor="rgb(245, 245, 245)"
                 )
                 fig.update_layout(margin={"r":0, "t":0, "l":0, "b":0}, height=550)
@@ -485,7 +501,7 @@ if df is not None and not df.empty:
                     pass
             else:
                 st.warning("⚠️ Não foi possível carregar a malha do mapa. Exibindo em formato de barras.")
-                fig = px.bar(df_mapa, x='Quantidade', y='UF_Normalizada', orientation='h')
+                fig = px.bar(df_mapa, x='Quantidade', y='Estado_Nome', orientation='h')
                 evento_clique = st.plotly_chart(fig, use_container_width=True, on_select="rerun")
                 estado_selecionado = None
 
@@ -493,7 +509,7 @@ if df is not None and not df.empty:
                 st.divider()
                 st.subheader(f"📍 Detalhamento para o Estado: {estado_selecionado}")
                 
-                df_estado = df_validados_periodo[df_validados_periodo['UF_Normalizada'] == estado_selecionado]
+                df_estado = df_validados_periodo[df_validados_periodo['Estado_Nome'] == estado_selecionado]
                 qtd_est = df_estado[col_id].nunique()
                 renda_est = df_estado['Valor_Produto'].sum()
                 lib_est = df_estado['Valor_Liberado'].sum()
