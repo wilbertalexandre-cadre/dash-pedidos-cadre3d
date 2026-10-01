@@ -90,16 +90,13 @@ def carregar_dados_do_drive():
                         sheet_names = xls.sheet_names
                         aba_renda = next((s for s in sheet_names if 'renda' in s.lower()), sheet_names[0])
                         
-                        # Lê a aba sem cabeçalho para ter acesso bruto às colunas por índice (A=0, B=1, C=2, L=11)
                         df_bruto = pd.read_excel(xls, sheet_name=aba_renda, header=None)
                         
-                        # Filtra estritamente as linhas onde a coluna B (índice 1) é exatamente 'SKU' (ignorando maiúsculas/minúsculas/espaços)
                         if df_bruto.shape[1] > 1:
                             col_b_str = df_bruto.iloc[:, 1].astype(str).str.strip().str.upper()
                             df_filtrado_linhas = df_bruto[col_b_str == 'SKU'].copy()
                             
                             if not df_filtrado_linhas.empty:
-                                # Atribui as colunas corretas baseadas na estrutura da aba Renda (ID do pedido na Coluna C / índice 2, Quantia total lançada na Coluna L / índice 11)
                                 df_processado = pd.DataFrame()
                                 if df_filtrado_linhas.shape[1] > 2:
                                     df_processado['ID do pedido'] = df_filtrado_linhas.iloc[:, 2].astype(str).str.strip()
@@ -294,6 +291,7 @@ if df is not None and not df.empty:
     def fmt_val(val):
         return f"R$ {val:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
 
+    # Totais gerais calculados estritamente apenas sobre os pedidos VÁLIDOS
     tot_produto_val = df_periodo[validados_mask]['Valor_Produto'].sum() if 'Valor_Produto' in df_periodo.columns else 0.0
     tot_liberado_val = df_periodo[validados_mask]['Valor_Liberado'].sum() if 'Valor_Liberado' in df_periodo.columns else 0.0
     tot_sujo_val = df_periodo[validados_mask]['Valor_Sujo'].sum() if 'Valor_Sujo' in df_periodo.columns else 0.0
@@ -321,6 +319,7 @@ if df is not None and not df.empty:
     
     st.divider()
     
+    # --- CÁLCULOS POR ABA (Também considerando as regras de Válidos) ---
     def calc_aba(mask):
         p = df_periodo[mask]['Valor_Produto'].sum() if 'Valor_Produto' in df_periodo.columns else 0.0
         l = df_periodo[mask]['Valor_Liberado'].sum() if 'Valor_Liberado' in df_periodo.columns else 0.0
