@@ -417,7 +417,7 @@ if df is not None and not df.empty:
             st.metric("🎯 Ticket Médio (Renda por Pedido)", fmt_val(tot_produto_val / total_validos if total_validos > 0 else 0.0))
             
         st.divider()
-        st.subheader("🗺️ Distribuição de Pedidos por Estado (Brasil)")
+        st.subheader("🗺️ Distribuição Geográfica de Pedidos por Estado (Brasil)")
         
         # Identificar coluna de estado/UF na base de pedidos
         col_estado = next((c for c in df_periodo.columns if c.strip().lower() in ['estado', 'uf', 'província/estado', 'provincia/estado']), None)
@@ -426,7 +426,7 @@ if df is not None and not df.empty:
             df_validados_periodo = df_periodo[validados_mask].copy()
             df_validados_periodo['UF'] = df_validados_periodo[col_estado].astype(str).str.strip().str.upper()
             
-            # Agrupar por estado para o mapa
+            # Agrupar por estado para o gráfico
             df_mapa = df_validados_periodo.groupby('UF').agg(
                 Quantidade=('ID do pedido' if 'ID do pedido' in df_validados_periodo.columns else df_validados_periodo.columns[0], 'nunique'),
                 Renda_Total=('Valor_Produto', 'sum')
@@ -438,33 +438,30 @@ if df is not None and not df.empty:
             else:
                 df_mapa['Porcentagem'] = 0.0
                 
-            # Carregar GeoJSON dos estados do Brasil para o Plotly
-            url_geojson = "https://raw.githubusercontent.com/codeforamerica/click_that_hood/master/public/data/brazil-states.geojson"
+            df_mapa = df_mapa.sort_values(by='Quantidade', ascending=True) # Ordem crescente para barras horizontais ficarem bonitas
             
-            fig = px.choropleth(
+            # Gráfico de barras horizontais interativo com Plotly
+            fig = px.bar(
                 df_mapa,
-                geojson=url_geojson,
-                locations='UF',
-                featureidkey='properties.sigla',
-                color='Quantidade',
-                color_continuous_scale='Blues',
-                hover_name='UF',
-                hover_data={'Quantidade': True, 'Porcentagem': ':.2f%'},
-                labels={'Quantidade': 'Volume de Pedidos'}
+                x='Quantidade',
+                y='UF',
+                text=df_mapa['Porcentagem'].apply(lambda x: f"{x:.1f}%"),
+                orientation='h',
+                labels={'Quantidade': 'Volume de Pedidos', 'UF': 'Estado (UF)'},
+                title="Volume e Participação (%) por Estado"
             )
-            fig.update_geos(fitbounds="locations", visible=False)
-            fig.update_layout(margin={"r":0,"t":0,"l":0,"b":0}, height=450)
+            fig.update_traces(textposition='outside')
+            fig.update_layout(margin={"r":10,"t":30,"l":10,"b":10}, height=450)
             
-            # Exibir gráfico interativo
             evento_clique = st.plotly_chart(fig, use_container_width=True, on_select="rerun")
             
-            # Capturar clique no estado se houver seleção
+            # Capturar clique na barra do estado se houver seleção
             estado_selecionado = None
             try:
                 if evento_clique and "selection" in evento_clique:
                     pontos = evento_clique["selection"].get("points", [])
                     if pontos:
-                        estado_selecionado = pontos[0].get("location")
+                        estado_selecionado = pontos[0].get("y")
             except:
                 pass
                 
@@ -504,9 +501,9 @@ if df is not None and not df.empty:
                     df_est_fmt = df_est_fmt.drop(columns=['Valor_Liberado'])
                 st.dataframe(df_est_fmt, use_container_width=True)
             else:
-                st.info("💡 **Dica:** Clique em cima de qualquer estado no mapa acima para ver os pedidos, valores e top produtos específicos daquela região.")
+                st.info("💡 **Dica:** Clique em cima de qualquer barra de estado no gráfico acima para ver os pedidos, valores e top produtos específicos daquela região.")
         else:
-            st.warning("⚠️ Não foi encontrada uma coluna de 'Estado' ou 'UF' nas planilhas de pedidos da Shopee para gerar o mapa geográfico.")
+            st.warning("⚠️ Não foi encontrada uma coluna de 'Estado' ou 'UF' nas planilhas de pedidos da Shopee para gerar a distribuição geográfica.")
 
 else:
     st.info("A pasta principal ou as subpastas 'pedidos' e 'financeiro' estão vazias ou a aguardar ficheiros no Google Drive!")
