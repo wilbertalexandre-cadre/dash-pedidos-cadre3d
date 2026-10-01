@@ -131,17 +131,20 @@ if df is not None and not df.empty:
     col_id = 'ID do Pedido' if 'ID do Pedido' in df_filtrado.columns else ('ID do pedido' if 'ID do pedido' in df_filtrado.columns else df_filtrado.columns[0])
     col_status = 'Status do pedido' if 'Status do pedido' in df_filtrado.columns else ('Status do Pedido' if 'Status do Pedido' in df_filtrado.columns else None)
     
-    # --- CÁLCULOS IDÊNTICOS ÀS ABAS DA SHOPEE ---
+    # --- CÁLCULOS EXATOS BASEADOS NAS ABAS DA SHOPEE ---
     if col_status and col_status in df_filtrado.columns:
         s = df_filtrado[col_status].astype(str).str.strip().str.lower()
         
-        # Pedidos válidos (exclui cancelados / não pagos para somar os ativos)
+        # Pedidos válidos (exclui cancelados / não pagos)
         validados_mask = ~s.isin(['cancelado', 'não pago', 'unpaid'])
         total_validos = df_filtrado[validados_mask][col_id].nunique()
         
         nao_pago = df_filtrado[s.str.contains('não pago|unpaid', na=False)][col_id].nunique()
         a_enviar = df_filtrado[s.str.contains('enviar|processando|pronto', na=False)][col_id].nunique()
-        enviado = df_filtrado[s.str.contains('enviado|trânsito|caminho', na=False)][col_id].nunique()
+        
+        # Captura específica para Enviado (inclui o status de trânsito e os entregues que ainda aguardam conclusão)
+        enviado = df_filtrado[s.str.contains('enviado|trânsito|caminho|entregue', na=False)][col_id].nunique()
+        
         concluido = df_filtrado[s == 'concluído'][col_id].nunique()
         cancelados = df_filtrado[s.str.contains('cancelado|devolução|retorno', na=False)][col_id].nunique()
     else:
@@ -155,7 +158,7 @@ if df is not None and not df.empty:
     valor_total = df_filtrado[validados_mask]['Valor_Numerico'].sum() if 'Valor_Numerico' in df_filtrado.columns and col_status else df_filtrado['Valor_Numerico'].sum()
     valor_formatado = f"R$ {valor_total:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
     
-    # --- EXIBIÇÃO EM ABAS / MÉTRICAS ESTILO SHOPEE ---
+    # --- EXIBIÇÃO EM MÉTRICAS ESTILO SHOPEE ---
     st.subheader("📊 Resumo de Pedidos (Padrão Shopee)")
     
     col1, col2, col3, col4, col5, col6 = st.columns(6)
