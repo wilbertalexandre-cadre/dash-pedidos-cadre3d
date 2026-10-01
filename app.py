@@ -102,7 +102,6 @@ if df is not None and not df.empty:
     
     st.sidebar.header("🎛️ Filtros do Painel")
     
-    # A base de data fixa-se estritamente na Data de Criação do Pedido
     coluna_ativa_data = 'Data_Criacao'
     
     opcao_tempo = st.sidebar.selectbox(
@@ -148,19 +147,14 @@ if df is not None and not df.empty:
     if col_status and col_status in df_periodo.columns:
         s = df_periodo[col_status].astype(str).str.strip().str.lower()
         
-        # Verifica se o motivo de cancelamento foi automático
         if col_motivo and col_motivo in df_periodo.columns:
             motivo = df_periodo[col_motivo].astype(str).str.strip().str.lower()
             automatico_mask = motivo.str.contains('automático|automatico|sistema', na=False)
         else:
             automatico_mask = pd.Series(False, index=df_periodo.index)
             
-        # Pedidos cancelados reais (excluindo os automáticos que vão para não pago)
         cancelados_mask = (s.eq('cancelado') | s.str.contains('pedido cancelado|reembolsado', na=False)) & (~automatico_mask)
-        
-        # Não pago inclui os explicitamente não pagos + os cancelados automaticamente
         nao_pago_mask = s.str.contains('não pago|unpaid', na=False) | automatico_mask
-        
         validados_mask = ~cancelados_mask & ~nao_pago_mask
         
         total_validos = df_periodo[validados_mask][col_id].nunique()
@@ -206,7 +200,7 @@ if df is not None and not df.empty:
     with tab_val:
         if total_validos > 0:
             df_v_show = df_periodo[validados_mask].copy()
-            cols_exibir = [col_id]
+            cols_exibir = [col_id, 'Data de criação do pedido']
             if 'Total global' in df_v_show.columns:
                 cols_exibir.append('Total global')
             elif 'Preço acordado' in df_v_show.columns:
@@ -223,7 +217,7 @@ if df is not None and not df.empty:
     with tab_canc:
         if cancelados > 0:
             df_c_show = df_periodo[cancelados_mask].copy()
-            cols_exibir_c = [col_id]
+            cols_exibir_c = [col_id, 'Data de criação do pedido']
             if 'Total global' in df_c_show.columns:
                 cols_exibir_c.append('Total global')
             elif 'Preço acordado' in df_c_show.columns:
