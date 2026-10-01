@@ -73,9 +73,7 @@ def carregar_dados_do_drive():
             if 'Total global' in df_limpo.columns:
                 val_col = df_limpo['Total global']
                 if val_col.dtype == object:
-                    # Remove 'R$', espaços e trata caso venha com vírgula ou ponto
                     val_str = val_col.astype(str).str.replace('R$', '', regex=False).str.strip()
-                    # Substitui vírgula por ponto caso venha no formato brasileiro antigo
                     val_str = val_str.str.replace(',', '.', regex=False)
                     val_num = pd.to_numeric(val_str, errors='coerce').fillna(0)
                 else:
@@ -143,18 +141,20 @@ if df is not None and not df.empty:
     col_id = 'ID do Pedido' if 'ID do Pedido' in df_filtrado.columns else ('ID do pedido' if 'ID do pedido' in df_filtrado.columns else df_filtrado.columns[0])
     col_status = 'Status do pedido' if 'Status do pedido' in df_filtrado.columns else ('Status do Pedido' if 'Status do Pedido' in df_filtrado.columns else None)
     
-    # --- CÁLCULOS EXATOS ---
+    # --- CÁLCULOS EXATOS E SEPARADOS ---
     if col_status and col_status in df_filtrado.columns:
         s = df_filtrado[col_status].astype(str).str.strip().str.lower()
         
-        validados_mask = ~s.str.contains('cancelado|não pago|unpaid', na=False)
-        total_validos = df_filtrado[validados_mask][col_id].nunique()
+        # Isola cancelados do conjunto geral para que não poluam os válidos do período
+        cancelados_mask = s.str.contains('cancelado|devolução|retorno', na=False)
+        validados_mask = ~cancelados_mask & ~s.str.contains('não pago|unpaid', na=False)
         
+        total_validos = df_filtrado[validados_mask][col_id].nunique()
         nao_pago = df_filtrado[s.str.contains('não pago|unpaid', na=False)][col_id].nunique()
-        a_enviar = df_filtrado[s.str.contains('enviar|processando|pronto', na=False)][col_id].nunique()
-        enviado = df_filtrado[s.str.contains('enviado|trânsito|caminho', na=False)][col_id].nunique()
-        concluido = df_filtrado[s.str.contains('concluído|concluido|entregue', na=False)][col_id].nunique()
-        cancelados = df_filtrado[s.str.contains('cancelado|devolução|retorno', na=False)][col_id].nunique()
+        a_enviar = df_filtrado[validados_mask & s.str.contains('enviar|processando|pronto', na=False)][col_id].nunique()
+        enviado = df_filtrado[validados_mask & s.str.contains('enviado|trânsito|caminho', na=False)][col_id].nunique()
+        concluido = df_filtrado[validados_mask & s.str.contains('concluído|concluido|entregue', na=False)][col_id].nunique()
+        cancelados = df_filtrado[cancelados_mask][col_id].nunique()
     else:
         validados_mask = df_filtrado.index.isin(df_filtrado.index)
         total_validos = df_filtrado[col_id].nunique()
