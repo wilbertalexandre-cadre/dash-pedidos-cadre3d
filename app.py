@@ -69,19 +69,26 @@ def carregar_dados_do_drive():
             else:
                 df_limpo['Data_Criacao'] = pd.NaT
                 
-            # --- TRATAMENTO ROBUSTO DO VALOR ---
-            # Prioriza a coluna 'Valor Total' da Shopee que representa o valor final do pedido pago pelo cliente
-            coluna_valor_alvo = None
-            for c in ['Valor Total', 'Total global', 'Preço acordado']:
-                if c in df_limpo.columns:
-                    coluna_valor_alvo = c
-                    break
-            
-            if coluna_valor_alvo:
-                val_str = df_limpo[coluna_valor_alvo].astype(str).str.replace('R$', '', regex=False)
-                val_str = val_str.str.replace('.', '', regex=False)
-                val_str = val_str.str.replace(',', '.', regex=False)
-                df_limpo['Valor_Numerico'] = pd.to_numeric(val_str, errors='coerce').fillna(0)
+            # --- TRATAMENTO SEGURO DO VALOR ---
+            # Multiplica 'Preço acordado' por 'Quantidade' garantindo tratamento correto de ponto/vírgula
+            if 'Preço acordado' in df_limpo.columns and 'Quantidade' in df_limpo.columns:
+                preco_str = df_limpo['Preço acordado'].astype(str).str.replace('R$', '', regex=False).str.strip()
+                # Se não tiver vírgula e ponto, assume formato padrão. Se tiver, trata.
+                preco_str = preco_str.str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
+                preco = pd.to_numeric(preco_str, errors='coerce').fillna(0)
+                
+                # Se os valores vieram multiplicados por 100 na exportação da Shopee, ajusta:
+                if preco.max() > 10000:
+                    preco = preco / 100.0
+                
+                qtd = pd.to_numeric(df_limpo['Quantidade'], errors='coerce').fillna(1)
+                df_limpo['Valor_Numerico'] = preco * qtd
+            elif 'Valor Total' in df_limpo.columns:
+                val_str = df_limpo['Valor Total'].astype(str).str.replace('R$', '', regex=False).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
+                val_num = pd.to_numeric(val_str, errors='coerce').fillna(0)
+                if val_num.max() > 10000:
+                    val_num = val_num / 100.0
+                df_limpo['Valor_Numerico'] = val_num
             else:
                 df_limpo['Valor_Numerico'] = 0.0
                 
@@ -162,7 +169,6 @@ if df is not None and not df.empty:
         concluido = total_validos
         cancelados = 0
 
-    # Utiliza a soma dos pedidos válidos usando a coluna de valor corrigida
     valor_total = df_filtrado[validados_mask]['Valor_Numerico'].sum() if 'Valor_Numerico' in df_filtrado.columns else 0.0
     valor_formatado = f"R$ {valor_total:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
     
@@ -190,8 +196,8 @@ if df is not None and not df.empty:
             resultado = df[df[col_id].astype(str).str.contains(pedido_id, case=False, na=False)]
             
             if not resultado.empty:
-                st.success(f"✅ Encontrado(s) {len(resultado)} registo(s) para este ID:")
-                cols_mostrar = [c for c in [col_id, col_status, 'Nome do Produto', 'Valor Total', 'Quantidade', 'Hora do pagamento do pedido'] if c and c in resultado.columns]
+                st.success(f"✅ Encontrado(s) registo(s) para este ID:")
+                cols_mostrar = [c for c in [col_id, col_status, 'Nome do Produto', 'Preço acordado', 'Quantidade', 'Hora do pagamento do pedido'] if c and c in resultado.columns]
                 st.dataframe(resultado[cols_mostrar], use_container_width=True)
             else:
                 st.error("❌ Pedido não encontrado.")
