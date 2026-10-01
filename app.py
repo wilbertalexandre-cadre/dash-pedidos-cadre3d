@@ -111,7 +111,7 @@ def carregar_dados_do_drive():
         dfs_financeiro = ler_financeiro(pasta_financeiro_id)
         
         df_pedidos = pd.concat(dfs_pedidos, ignore_index=True) if dfs_pedidos else pd.DataFrame()
-        df_financeiro = pd.concat(dfs_financeiro, ignore_index=True) if dfs_financeiro else pd.DataFrame()
+        df_financeiro = pd.concat(dfs_financeiro, ignore_index=True) if df_financeiro else pd.DataFrame()
         
         if df_pedidos.empty:
             return pd.DataFrame()
@@ -432,7 +432,6 @@ if df is not None and not df.empty:
             df_validados_periodo = df_periodo[validados_mask].copy()
             df_validados_periodo['UF_Normalizada'] = df_validados_periodo[col_estado].astype(str).str.strip().str.upper()
             
-            # Dicionário oficial de coordenadas geográficas (Latitude e Longitude) dos estados brasileiros para o mapa interativo
             coords_estados = {
                 'AC': (-9.0238, -70.8120), 'AL': (-9.5713, -36.7820), 'AP': (1.4125, -51.7700),
                 'AM': (-3.4168, -65.8561), 'BA': (-12.5797, -41.7007), 'CE': (-5.4984, -39.3206),
@@ -453,7 +452,6 @@ if df is not None and not df.empty:
             df_mapa['Lat'] = df_mapa['UF_Normalizada'].map(lambda x: coords_estados.get(x, (-14.2350, -51.9253))[0])
             df_mapa['Lon'] = df_mapa['UF_Normalizada'].map(lambda x: coords_estados.get(x, (-14.2350, -51.9253))[1])
             
-            # Gráfico de dispersão geográfica sobre o mapa do Brasil
             fig = px.scatter_geo(
                 df_mapa,
                 lat='Lat',
@@ -462,17 +460,19 @@ if df is not None and not df.empty:
                 color='Quantidade',
                 hover_name='UF_Normalizada',
                 color_continuous_scale="Blues",
-                size_max=45,
-                projection="mercator",
+                size_max=40,
                 labels={'Quantidade': 'Volume de Pedidos'}
             )
             
+            # Forçar enquadramento geográfico exato centrado no Brasil com scope south america
             fig.update_geos(
-                fitbounds="locations",
+                scope="south america",
+                center={"lat": -14.2350, "lon": -51.9253},
+                projection_scale=3.8,
                 visible=True,
-                showcountries=True, countrycolor="RebeccaPurple",
-                showcoastlines=True, coastlinecolor="RebeccaPurple",
-                showland=True, landcolor="rgb(240, 242, 245)"
+                showcountries=True, countrycolor="lightgray",
+                showcoastlines=True, coastlinecolor="lightgray",
+                showland=True, landcolor="rgb(245, 247, 250)"
             )
             fig.update_layout(margin={"r":0, "t":0, "l":0, "b":0}, height=550)
             
@@ -483,7 +483,6 @@ if df is not None and not df.empty:
                 if evento_clique and "selection" in evento_clique:
                     pontos = evento_clique["selection"].get("points", [])
                     if pontos:
-                        # Obter o índice ou hover_name do ponto clicado
                         idx = pontos[0].get("pointIndex")
                         if idx is not None and idx < len(df_mapa):
                             estado_selecionado = df_mapa.iloc[idx]['UF_Normalizada']
