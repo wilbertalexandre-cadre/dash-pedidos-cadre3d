@@ -109,7 +109,7 @@ if df is not None and not df.empty:
     
     opcao_tempo = st.sidebar.selectbox(
         "Período:", 
-        ["Últimos 7 dias", "Hoje", "Ontem", "Este mês", "Todo o período", "Personalizado"]
+        ["Hoje", "Ontem", "Últimos 7 dias", "Este mês", "Todo o período", "Personalizado"]
     )
     
     df_filtrado = df.copy()
@@ -117,31 +117,29 @@ if df is not None and not df.empty:
     coluna_ativa_data = 'Data_Pagamento' if tipo_data == "Hora do Pagamento" else 'Data_Criacao'
     
     if coluna_ativa_data in df_filtrado.columns:
-        max_data = df_filtrado[coluna_ativa_data].max()
-        
-        # Ajuste de fuso horário para o Brasil (UTC-3)
+        # Ajuste rigoroso de fuso horário para o Brasil (UTC-3)
         fuso_br = timezone(timedelta(hours=-3))
         hoje = datetime.now(fuso_br).replace(hour=0, minute=0, second=0, microsecond=0)
-        hoje = pd.Timestamp(hoje).tz_localize(None) # Remove tz para comparar com o pandas datetime local
-        
-        ref_data = max_data if pd.notna(max_data) else hoje
+        hoje = pd.Timestamp(hoje).tz_localize(None)
         
         if opcao_tempo == "Hoje":
             df_filtrado = df_filtrado[df_filtrado[coluna_ativa_data].dt.normalize() == hoje]
         elif opcao_tempo == "Ontem":
             ontem = hoje - pd.Timedelta(days=1)
             df_filtrado = df_filtrado[df_filtrado[coluna_ativa_data].dt.normalize() == ontem]
-        elif opcao_tempo == "Este mês":
-            inicio = ref_data.replace(day=1)
-            fim = (inicio + pd.DateOffset(months=1))
-            df_filtrado = df_filtrado[(df_filtrado[coluna_ativa_data] >= inicio) & (df_filtrado[coluna_ativa_data] < fim)]
         elif opcao_tempo == "Últimos 7 dias":
-            inicio = pd.to_datetime("2026-09-23 00:00:00")
-            fim = pd.to_datetime("2026-09-29 23:59:59")
-            df_filtrado = df_filtrado[(df_filtrado[coluna_ativa_data] >= inicio) & (df_filtrado[coluna_ativa_data] <= fim)]
+            # 7 dias corridos fechados a partir de hoje (início do dia de 6 dias atrás até o fim de hoje)
+            inicio_7d = hoje - pd.Timedelta(days=6)
+            df_filtrado = df_filtrado[(df_filtrado[coluna_ativa_data] >= inicio_7d) & (df_filtrado[coluna_ativa_data] < (hoje + pd.Timedelta(days=1)))]
+        elif opcao_tempo == "Este mês":
+            inicio_mes = hoje.replace(day=1)
+            proximo_mes = (inicio_mes + pd.DateOffset(months=1))
+            df_filtrado = df_filtrado[(df_filtrado[coluna_ativa_data] >= inicio_mes) & (df_filtrado[coluna_ativa_data] < proximo_mes)]
+        elif opcao_tempo == "Todo o período":
+            df_filtrado = df_filtrado.copy()
         elif opcao_tempo == "Personalizado":
-            d_inicio = st.sidebar.date_input("Data Inicial", datetime(2026, 9, 23).date())
-            d_fim = st.sidebar.date_input("Data Final", datetime(2026, 9, 29).date())
+            d_inicio = st.sidebar.date_input("Data Inicial", (hoje - pd.Timedelta(days=7)).date())
+            d_fim = st.sidebar.date_input("Data Final", hoje.date())
             df_filtrado = df_filtrado[(df_filtrado[coluna_ativa_data] >= pd.to_datetime(d_inicio)) & (df_filtrado[coluna_ativa_data] <= pd.to_datetime(d_fim) + pd.Timedelta(days=1))]
             
     st.markdown("<br>", unsafe_allow_html=True)
