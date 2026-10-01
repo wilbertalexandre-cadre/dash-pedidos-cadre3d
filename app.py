@@ -101,6 +101,19 @@ def carregar_dados_do_drive():
                                     df_processado['ID do pedido'] = df_filtrado_linhas.iloc[:, 2].astype(str).str.strip()
                                 if df_filtrado_linhas.shape[1] > 11:
                                     df_processado['Quantia total lançada'] = df_filtrado_linhas.iloc[:, 11]
+                                
+                                # Procurar dinamicamente uma coluna de data nas linhas de resumo ou cabeçalho do financeiro
+                                col_data_fin = None
+                                for c_idx in range(df_bruto.shape[1]):
+                                    amostra_col = df_bruto.iloc[:, c_idx].astype(str).str.lower()
+                                    if any(term in ' '.join(amostra_col.head(5).values) for term in ['data', 'date', 'libera', 'lanç', 'pago']):
+                                        col_data_fin = c_idx
+                                        break
+                                if col_data_fin is not None:
+                                    df_processado['Data_Liberacao_Financeira'] = pd.to_datetime(df_filtrado_linhas.iloc[:, col_data_fin], errors='coerce')
+                                else:
+                                    df_processado['Data_Liberacao_Financeira'] = pd.NaT
+
                                 if not df_processado.empty:
                                     dfs.append(df_processado)
                     except Exception as e:
@@ -139,10 +152,21 @@ def carregar_dados_do_drive():
                     limpar_val_fin(df_financeiro[col_quantia_fin])
                 ))
                 df_limpo['Valor_Financeiro_Real'] = df_limpo[col_id_ped].astype(str).str.strip().map(fin_dict)
+
+                if 'Data_Liberacao_Financeira' in df_financeiro.columns:
+                    data_dict = dict(zip(
+                        df_financeiro[col_id_fin].astype(str).str.strip(),
+                        df_financeiro['Data_Liberacao_Financeira']
+                    ))
+                    df_limpo['Data_Liberacao'] = df_limpo[col_id_ped].astype(str).str.strip().map(data_dict)
+                else:
+                    df_limpo['Data_Liberacao'] = pd.NaT
             else:
                 df_limpo['Valor_Financeiro_Real'] = 0.0
+                df_limpo['Data_Liberacao'] = pd.NaT
         else:
             df_limpo['Valor_Financeiro_Real'] = 0.0
+            df_limpo['Data_Liberacao'] = pd.NaT
             
         if 'Data de criação do pedido' in df_limpo.columns:
             df_limpo['Data_Criacao'] = pd.to_datetime(df_limpo['Data de criação do pedido'], errors='coerce')
@@ -203,7 +227,10 @@ if df is not None and not df.empty:
     
     st.sidebar.divider()
     st.sidebar.header("📅 Filtros do Período")
-    coluna_ativa_data = 'Data_Criacao'
+    
+    # Permitir escolher se o filtro de data baseia-se na Criação ou na Liberação Financeira
+    tipo_data_filtro = st.sidebar.radio("Filtrar por data de:", ["Criação do Pedido", "Liberação Financeira"])
+    coluna_ativa_data = 'Data_Criacao' if tipo_data_filtro == "Criação do Pedido" else 'Data_Liberacao'
     
     opcao_tempo = st.sidebar.selectbox(
         "Período:", 
@@ -315,8 +342,11 @@ if df is not None and not df.empty:
                 resultado = df[df[col_id].astype(str).str.contains(pedido_id_fin, case=False, na=False)]
                 if not resultado.empty:
                     st.success("✅ Pedido encontrado:")
-                    cols_fin = [c for c in [col_id, 'Nome do Produto', 'Total global', 'Ajuste por participação em ação comercial', 'Valor_Produto', 'Valor_Liberado', 'Valor_Sujo'] if c and c in resultado.columns]
+                    cols_fin = [c for c in [col_id, 'Nome do Produto', 'Data_Liberacao', 'Total global', 'Ajuste por participação em ação comercial', 'Valor_Produto', 'Valor_Liberado', 'Valor_Sujo'] if c and c in resultado.columns]
                     res_fmt = resultado[cols_fin].copy()
+                    if 'Data_Liberacao' in res_fmt.columns:
+                        res_fmt['Data de Liberação'] = res_fmt['Data_Liberacao'].dt.strftime('%d/%m/%Y').fillna('Pendente')
+                        res_fmt = res_fmt.drop(columns=['Data_Liberacao'])
                     for col_m in ['Valor_Produto', 'Valor_Liberado', 'Valor_Sujo']:
                         if col_m in res_fmt.columns:
                             res_fmt[col_m] = res_fmt[col_m].apply(fmt_val)
@@ -364,6 +394,8 @@ if df is not None and not df.empty:
             if mask_filtro.sum() > 0:
                 df_show = df_periodo[mask_filtro].copy()
                 cols_exibir = [col_id, 'Data de criação do pedido']
+                if 'Data_Liberacao' in df_show.columns:
+                    cols_exibir.append('Data_Liberacao')
                 if 'Total global' in df_show.columns:
                     cols_exibir.append('Total global')
                 if 'Valor_Produto' in df_show.columns:
@@ -380,6 +412,9 @@ if df is not None and not df.empty:
                     cols_exibir.append('Nome do Produto')
                     
                 df_show_fmt = df_show[cols_exibir].copy()
+                if 'Data_Liberacao' in df_show_fmt.columns:
+                    df_show_fmt['Data de Liberação'] = df_show_fmt['Data_Liberacao'].dt.strftime('%d/%m/%Y').fillna('-')
+                    df_show_fmt = df_show_fmt.drop(columns=['Data_Liberacao'])
                 if 'Valor_Produto' in df_show_fmt.columns:
                     df_show_fmt['Montante Produto'] = df_show_fmt['Valor_Produto'].apply(fmt_val)
                     df_show_fmt = df_show_fmt.drop(columns=['Valor_Produto'])
@@ -445,7 +480,6 @@ if df is not None and not df.empty:
                 
             df_mapa = df_mapa.sort_values(by='Quantidade', ascending=True)
             
-            # Gráfico de barras horizontais em gradiente
             fig = px.bar(
                 df_mapa,
                 x='Quantidade',
