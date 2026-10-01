@@ -126,7 +126,8 @@ if df is not None and not df.empty:
             fim = (inicio + pd.DateOffset(months=1))
             df_filtrado = df_filtrado[(df_filtrado[coluna_ativa_data] >= inicio) & (df_filtrado[coluna_ativa_data] < fim)]
         elif opcao_tempo == "Últimos 7 dias":
-            inicio = ref_data - pd.Timedelta(days=7)
+            # Ajuste exato para janela de 7 dias civis fechados
+            inicio = ref_data - pd.Timedelta(days=6)
             df_filtrado = df_filtrado[(df_filtrado[coluna_ativa_data] >= inicio) & (df_filtrado[coluna_ativa_data] <= ref_data + pd.Timedelta(days=1))]
         elif opcao_tempo == "Últimos 30 dias":
             inicio = ref_data - pd.Timedelta(days=30)
@@ -145,7 +146,6 @@ if df is not None and not df.empty:
     if col_status and col_status in df_filtrado.columns:
         s = df_filtrado[col_status].astype(str).str.strip().str.lower()
         
-        # Isola cancelados do conjunto geral para que não poluam os válidos do período
         cancelados_mask = s.str.contains('cancelado|devolução|retorno', na=False)
         validados_mask = ~cancelados_mask & ~s.str.contains('não pago|unpaid', na=False)
         
