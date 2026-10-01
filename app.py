@@ -103,12 +103,12 @@ if df is not None and not df.empty:
     st.sidebar.header("🎛️ Filtros do Painel")
     
     tipo_data = st.sidebar.radio(
-        "Base de Data:",
+        "Base de Data (Aplica-se ao Faturamento):",
         ["Hora do Pagamento", "Data de Criação"]
     )
     
     opcao_tempo = st.sidebar.selectbox(
-        "Período:", 
+        "Período (Aplica-se ao Faturamento):", 
         ["Hoje", "Ontem", "Últimos 7 dias", "Este mês", "Todo o período", "Personalizado"]
     )
     
@@ -117,63 +117,69 @@ if df is not None and not df.empty:
     coluna_ativa_data = 'Data_Pagamento' if tipo_data == "Hora do Pagamento" else 'Data_Criacao'
     
     if coluna_ativa_data in df_filtrado.columns:
-        # Ajuste rigoroso de fuso horário para o Brasil (UTC-3)
         fuso_br = timezone(timedelta(hours=-3))
         hoje = datetime.now(fuso_br).replace(hour=0, minute=0, second=0, microsecond=0)
         hoje = pd.Timestamp(hoje).tz_localize(None)
         
         if opcao_tempo == "Hoje":
-            df_filtrado = df_filtrado[df_filtrado[coluna_ativa_data].dt.normalize() == hoje]
+            df_periodo = df_filtrado[df_filtrado[coluna_ativa_data].dt.normalize() == hoje]
         elif opcao_tempo == "Ontem":
             ontem = hoje - pd.Timedelta(days=1)
-            df_filtrado = df_filtrado[df_filtrado[coluna_ativa_data].dt.normalize() == ontem]
+            df_periodo = df_filtrado[df_filtrado[coluna_ativa_data].dt.normalize() == ontem]
         elif opcao_tempo == "Últimos 7 dias":
-            # 7 dias corridos fechados a partir de hoje (início do dia de 6 dias atrás até o fim de hoje)
             inicio_7d = hoje - pd.Timedelta(days=6)
-            df_filtrado = df_filtrado[(df_filtrado[coluna_ativa_data] >= inicio_7d) & (df_filtrado[coluna_ativa_data] < (hoje + pd.Timedelta(days=1)))]
+            df_periodo = df_filtrado[(df_filtrado[coluna_ativa_data] >= inicio_7d) & (df_filtrado[coluna_ativa_data] < (hoje + pd.Timedelta(days=1)))]
         elif opcao_tempo == "Este mês":
             inicio_mes = hoje.replace(day=1)
             proximo_mes = (inicio_mes + pd.DateOffset(months=1))
-            df_filtrado = df_filtrado[(df_filtrado[coluna_ativa_data] >= inicio_mes) & (df_filtrado[coluna_ativa_data] < proximo_mes)]
+            df_periodo = df_filtrado[(df_filtrado[coluna_ativa_data] >= inicio_mes) & (df_filtrado[coluna_ativa_data] < proximo_mes)]
         elif opcao_tempo == "Todo o período":
-            df_filtrado = df_filtrado.copy()
+            df_periodo = df_filtrado.copy()
         elif opcao_tempo == "Personalizado":
             d_inicio = st.sidebar.date_input("Data Inicial", (hoje - pd.Timedelta(days=7)).date())
             d_fim = st.sidebar.date_input("Data Final", hoje.date())
-            df_filtrado = df_filtrado[(df_filtrado[coluna_ativa_data] >= pd.to_datetime(d_inicio)) & (df_filtrado[coluna_ativa_data] <= pd.to_datetime(d_fim) + pd.Timedelta(days=1))]
+            df_periodo = df_filtrado[(df_filtrado[coluna_ativa_data] >= pd.to_datetime(d_inicio)) & (df_filtrado[coluna_ativa_data] <= pd.to_datetime(d_fim) + pd.Timedelta(days=1))]
+    else:
+        df_periodo = df_filtrado.copy()
             
     st.markdown("<br>", unsafe_allow_html=True)
     
     col_id = 'ID do Pedido' if 'ID do Pedido' in df_filtrado.columns else ('ID do pedido' if 'ID do pedido' in df_filtrado.columns else df_filtrado.columns[0])
     col_status = 'Status do pedido' if 'Status do pedido' in df_filtrado.columns else ('Status do Pedido' if 'Status do Pedido' in df_filtrado.columns else None)
     
-    # --- CÁLCULOS EXATOS E SEPARADOS ---
-    if col_status and col_status in df_filtrado.columns:
-        s = df_filtrado[col_status].astype(str).str.strip().str.lower()
+    # --- STATUS GLOBAIS (CONSULTA GERAL SEM FILTRO DE DATA) ---
+    if col_status and col_status in df.columns:
+        s_geral = df[col_status].astype(str).str.strip().str.lower()
         
-        cancelados_mask = s.str.contains('cancelado|devolução|retorno', na=False)
-        validados_mask = ~cancelados_mask & ~s.str.contains('não pago|unpaid', na=False)
+        cancelados_geral = s_geral.str.contains('cancelado|devolução|retorno', na=False)
+        validados_geral = ~cancelados_geral & ~s_geral.str.contains('não pago|unpaid', na=False)
         
-        total_validos = df_filtrado[validados_mask][col_id].nunique()
-        nao_pago = df_filtrado[s.str.contains('não pago|unpaid', na=False)][col_id].nunique()
-        a_enviar = df_filtrado[validados_mask & s.str.contains('enviar|processando|pronto', na=False)][col_id].nunique()
-        enviado = df_filtrado[validados_mask & s.str.contains('enviado|trânsito|caminho', na=False)][col_id].nunique()
-        concluido = df_filtrado[validados_mask & s.str.contains('concluído|concluido|entregue', na=False)][col_id].nunique()
-        cancelados = df_filtrado[cancelados_mask][col_id].nunique()
+        total_validos = df[validados_geral][col_id].nunique()
+        nao_pago = df[s_geral.str.contains('não pago|unpaid', na=False)][col_id].nunique()
+        a_enviar = df[validados_geral & s_geral.str.contains('enviar|processando|pronto', na=False)][col_id].nunique()
+        enviado = df[validados_geral & s_geral.str.contains('enviado|trânsito|caminho', na=False)][col_id].nunique()
+        concluido = df[validados_geral & s_geral.str.contains('concluído|concluido|entregue', na=False)][col_id].nunique()
+        cancelados = df[cancelados_geral][col_id].nunique()
     else:
-        validados_mask = df_filtrado.index.isin(df_filtrado.index)
-        total_validos = df_filtrado[col_id].nunique()
+        total_validos = df[col_id].nunique()
         nao_pago = 0
         a_enviar = 0
         enviado = 0
         concluido = total_validos
         cancelados = 0
 
-    valor_total = df_filtrado[validados_mask]['Valor_Numerico'].sum() if 'Valor_Numerico' in df_filtrado.columns else 0.0
+    # --- FATURAMENTO APENAS PARA O PERÍODO SELECIONADO ---
+    if col_status and col_status in df_periodo.columns:
+        s_p = df_periodo[col_status].astype(str).str.strip().str.lower()
+        validados_periodo = ~s_p.str.contains('cancelado|devolução|retorno|não pago|unpaid', na=False)
+    else:
+        validados_periodo = df_periodo.index.isin(df_periodo.index)
+
+    valor_total = df_periodo[validados_periodo]['Valor_Numerico'].sum() if 'Valor_Numerico' in df_periodo.columns else 0.0
     valor_formatado = f"R$ {valor_total:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
     
     # --- EXIBIÇÃO EM MÉTRICAS ESTILO SHOPEE ---
-    st.subheader("📊 Resumo de Pedidos (Padrão Shopee)")
+    st.subheader("📊 Status de Pedidos (Geral / Atual)")
     
     col1, col2, col3, col4, col5, col6 = st.columns(6)
     col1.metric("📦 Válidos", total_validos)
@@ -184,7 +190,7 @@ if df is not None and not df.empty:
     col6.metric("❌ Cancelados", cancelados)
     
     st.markdown("<br>", unsafe_allow_html=True)
-    st.metric("💰 Faturamento Total (Válidos)", valor_formatado)
+    st.metric(f"💰 Faturamento Total ({opcao_tempo})", valor_formatado)
     
     st.divider()
     
@@ -205,8 +211,8 @@ if df is not None and not df.empty:
             st.error("A coluna de ID de pedido não existe nas planilhas.")
             
     st.divider()
-    with st.expander("Ver lista de pedidos (Tabela Completa)"):
-        tabela_visual = df_filtrado.drop(columns=['Valor_Numerico'], errors='ignore')
+    with st.expander("Ver lista de pedidos (Tabela Completa do Período)"):
+        tabela_visual = df_periodo.drop(columns=['Valor_Numerico'], errors='ignore')
         if 'Data_Pagamento' in tabela_visual.columns:
             tabela_visual['Data Pagamento'] = tabela_visual['Data_Pagamento'].dt.strftime('%d/%m/%Y %H:%M')
         st.dataframe(tabela_visual, use_container_width=True)
