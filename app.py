@@ -278,7 +278,7 @@ if df is not None and not df.empty:
             
             # Exibe os montantes abaixo da tabela
             st.markdown(
-                f"**Resumo da Categoria:** &nbsp;&nbsp; 🎯 **Montante de Produtos (Sua Renda):** `{fmt_val(prod_val)}` &nbsp;&nbsp;|&nbsp;&nbsp; 📦 **Montante Bruto (Com Frete):** `{fmt_val(sujo_val)}`",
+                f"**Resumo da Categoria:** &nbsp;&nbsp; 🎯 **Montante de Produtos:** `{fmt_val(prod_val)}` &nbsp;&nbsp;|&nbsp;&nbsp; 📦 **Montante Bruto:** `{fmt_val(sujo_val)}`",
                 unsafe_allow_html=True
             )
         else:
