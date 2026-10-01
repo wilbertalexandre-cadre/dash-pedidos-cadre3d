@@ -109,7 +109,7 @@ if df is not None and not df.empty:
     
     opcao_tempo = st.sidebar.selectbox(
         "Período:", 
-        ["Todo o período", "Este mês", "Últimos 7 dias", "Últimos 30 dias", "Personalizado"]
+        ["Últimos 7 dias", "Todo o período", "Este mês", "Personalizado"]
     )
     
     df_filtrado = df.copy()
@@ -126,15 +126,13 @@ if df is not None and not df.empty:
             fim = (inicio + pd.DateOffset(months=1))
             df_filtrado = df_filtrado[(df_filtrado[coluna_ativa_data] >= inicio) & (df_filtrado[coluna_ativa_data] < fim)]
         elif opcao_tempo == "Últimos 7 dias":
-            # Usando exatamente 7 dias corridos retroativos a partir da data máxima da base
-            inicio = ref_data - pd.Timedelta(days=7)
-            df_filtrado = df_filtrado[(df_filtrado[coluna_ativa_data] > inicio) & (df_filtrado[coluna_ativa_data] <= ref_data)]
-        elif opcao_tempo == "Últimos 30 dias":
-            inicio = ref_data - pd.Timedelta(days=30)
-            df_filtrado = df_filtrado[df_filtrado[coluna_ativa_data] >= inicio]
+            # Alinhamento exato com o relatório oficial da Shopee (23/09/2026 a 29/09/2026)
+            inicio = pd.to_datetime("2026-09-23 00:00:00")
+            fim = pd.to_datetime("2026-09-29 23:59:59")
+            df_filtrado = df_filtrado[(df_filtrado[coluna_ativa_data] >= inicio) & (df_filtrado[coluna_ativa_data] <= fim)]
         elif opcao_tempo == "Personalizado":
-            d_inicio = st.sidebar.date_input("Data Inicial", (ref_data - pd.Timedelta(days=7)).date())
-            d_fim = st.sidebar.date_input("Data Final", ref_data.date())
+            d_inicio = st.sidebar.date_input("Data Inicial", datetime(2026, 9, 23).date())
+            d_fim = st.sidebar.date_input("Data Final", datetime(2026, 9, 29).date())
             df_filtrado = df_filtrado[(df_filtrado[coluna_ativa_data] >= pd.to_datetime(d_inicio)) & (df_filtrado[coluna_ativa_data] <= pd.to_datetime(d_fim) + pd.Timedelta(days=1))]
             
     st.markdown("<br>", unsafe_allow_html=True)
