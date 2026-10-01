@@ -70,18 +70,14 @@ def carregar_dados_do_drive():
                 df_limpo['Data_Criacao'] = pd.NaT
                 
             # --- TRATAMENTO PRECISO DO VALOR ---
-            # Usa 'Valor Total' (ou converte corretamente sem multiplicar por erro)
             if 'Valor Total' in df_limpo.columns:
                 val_col = df_limpo['Valor Total']
                 if val_col.dtype == object:
                     val_str = val_col.astype(str).str.replace('R$', '', regex=False).str.strip()
-                    # Remove pontos de milhar e troca vírgula por ponto
                     val_str = val_str.str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
                     val_num = pd.to_numeric(val_str, errors='coerce').fillna(0)
                 else:
                     val_num = pd.to_numeric(val_col, errors='coerce').fillna(0)
-                
-                # Se o valor vier em centavos inteiros (ex: 1200 para R$ 12,00), ajusta se necessário
                 df_limpo['Valor_Numerico'] = val_num
             elif 'Preço acordado' in df_limpo.columns and 'Quantidade' in df_limpo.columns:
                 p_str = df_limpo['Preço acordado'].astype(str).str.replace('R$', '', regex=False).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
@@ -192,7 +188,7 @@ if df is not None and not df.empty:
     
     if pedido_id:
         if col_id in df.columns:
-            resultado = df[df[col_id].astype(str].str.contains(pedido_id, case=False, na=False)]
+            resultado = df[df[col_id].astype(str).str.contains(pedido_id, case=False, na=False)]
             
             if not resultado.empty:
                 st.success(f"✅ Encontrado(s) registo(s) para este ID:")
