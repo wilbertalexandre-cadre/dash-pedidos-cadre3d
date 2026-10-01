@@ -10,7 +10,7 @@ from googleapiclient.http import MediaIoBaseDownload
 st.set_page_config(page_title="Dashboard Cadre 3D", page_icon="📦", layout="wide")
 
 st.title("📦 Dashboard de Vendas - Cadre 3D")
-st.markdown("Acompanhe os seus resultados e consulte o estado dos pedidos exatamente como na Shopee.")
+st.markdown("Acompanhe os seus resultados, pedidos e repasses financeiros exatos da Shopee.")
 
 @st.cache_data(ttl=120)
 def carregar_dados_do_drive():
@@ -21,83 +21,153 @@ def carregar_dados_do_drive():
         )
         servico = build('drive', 'v3', credentials=credenciais)
         
-        pasta_id = '1p0H9A9-0r8QCX34koCd3mrsyXmTtTzUQ'
-        query = f"'{pasta_id}' in parents and trashed=false"
-        resultados = servico.files().list(q=query, fields="files(id, name, mimeType)").execute()
-        arquivos = resultados.get('files', [])
+        pasta_principal_id = '1p0H9A9-0r8QCX34koCd3mrsyXmTtTzUQ'
         
-        if not arquivos:
-            return pd.DataFrame()
-            
-        dfs = []
-        for arq in arquivos:
-            request = servico.files().get_media(fileId=arq['id'])
-            
-            if arq['mimeType'] == 'application/vnd.google-apps.spreadsheet':
-                request = servico.files().export_media(fileId=arq['id'], mimeType='text/csv')
-                arquivo_baixado = io.BytesIO(request.execute())
-                df = pd.read_csv(arquivo_baixado)
-            else:
-                arquivo_baixado = io.BytesIO()
-                downloader = MediaIoBaseDownload(arquivo_baixado, request)
-                done = False
-                while done is False:
-                    status, done = downloader.next_chunk()
-                arquivo_baixado.seek(0)
+        # 1. Encontrar as subpastas 'pedidos' e 'financeiro'
+        query_sub = f"'{pasta_principal_id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed=false"
+        res_sub = servico.files().list(q=query_sub, fields="files(id, name)").execute()
+        subpastas = res_sub.get('files', [])
+        
+        pasta_pedidos_id = None
+        pasta_financeiro_id = None
+        
+        for sp in subpastas:
+            nome_sp = sp['name'].strip().lower()
+            if 'pedido' in nome_sp:
+                pasta_pedidos_id = sp['id']
+            elif 'financeiro' in nome_sp or 'finan' in nome_sp:
+                pasta_financeiro_id = sp['id']
                 
-                if arq['name'].endswith('.csv'):
+        # Função auxiliar para baixar e ler arquivos de uma pasta
+        def ler_arquivos_da_pasta(pasta_id, tipo_dado='pedido'):
+            if not pasta_id:
+                return []
+            q_arq = f"'{pasta_id}' in parents and trashed=false"
+            res_arq = servico.files().list(q=q_arq, fields="files(id, name, mimeType)").execute()
+            arquivos = res_arq.get('files', [])
+            
+            dfs = []
+            for arq in arquivos:
+                request = servico.files().get_media(fileId=arq['id'])
+                if arq['mimeType'] == 'application/vnd.google-apps.spreadsheet':
+                    request = servico.files().export_media(fileId=arq['id'], mimeType='text/csv')
+                    arquivo_baixado = io.BytesIO(request.execute())
                     df = pd.read_csv(arquivo_baixado)
                 else:
-                    df = pd.read_excel(arquivo_baixado)
+                    arquivo_baixado = io.BytesIO()
+                    downloader = MediaIoBaseDownload(arquivo_baixado, request)
+                    done = False
+                    while done is False:
+                        status, done = downloader.next_chunk()
+                    arquivo_baixado.seek(0)
                     
-            dfs.append(df)
+                    if arq['name'].endswith('.csv'):
+                        df = pd.read_csv(arquivo_baixado)
+                    else:
+                        try:
+                            xls = pd.ExcelFile(arquivo_baixado)
+                            sheet_names = xls.sheet_names
+                            aba_alvo = next((s for s in sheet_names if 'renda' in s.lower() or 'income' in s.lower()), sheet_names[0])
+                            df = pd.read_excel(xls, sheet_name=aba_alvo)
+                        except Exception:
+                            arquivo_baixado.seek(0)
+                            df = pd.read_excel(arquivo_baixado)
+                dfs.append(df)
+            return dfs
+
+        # Carregar Pedidos e Financeiro
+        dfs_pedidos = ler_arquivos_da_pasta(pasta_pedidos_id, 'pedido')
+        dfs_financeiro = ler_arquivos_da_pasta(pasta_financeiro_id, 'financeiro')
+        
+        df_pedidos = pd.concat(dfs_pedidos, ignore_index=True) if dfs_pedidos else pd.DataFrame()
+        df_financeiro = pd.concat(dfs_financeiro, ignore_index=True) if dfs_financeiro else pd.DataFrame()
+        
+        if df_pedidos.empty:
+            return pd.DataFrame()
             
-        if dfs:
-            df_completo = pd.concat(dfs, ignore_index=True)
-            df_completo.columns = df_completo.columns.str.strip() 
+        df_pedidos.columns = df_pedidos.columns.str.strip()
+        df_limpo = df_pedidos.copy()
+        
+        # --- CRUZAR COM DADOS FINANCEIROS ('Quantia total lançada') ---
+        if not df_financeiro.empty:
+            df_financeiro.columns = df_financeiro.columns.str.strip()
             
-            df_limpo = df_completo.copy()
-                
-            # --- CONVERSÃO DAS DATAS ---
-            if 'Data de criação do pedido' in df_limpo.columns:
-                df_limpo['Data_Criacao'] = pd.to_datetime(df_limpo['Data de criação do pedido'], errors='coerce')
+            col_id_ped = next((c for c in df_limpo.columns if 'id' in c.lower() and 'pedido' in c.lower()), df_limpo.columns[0])
+            col_id_fin = next((c for c in df_financeiro.columns if 'id' in c.lower() and 'pedido' in c.lower()), None)
+            
+            col_quantia_fin = next((c for c in df_financeiro.columns if 'quantia total lançada' in c.lower() or 'quantia total lancada' in c.lower() or 'total lançada' in c.lower()), None)
+            
+            if col_id_fin and col_quantia_fin:
+                # Função interna para limpar valores da coluna quantia total lançada
+                def limpar_val_fin(serie):
+                    if serie.dtype == object:
+                        s_str = serie.astype(str).str.replace('R$', '', regex=False).str.strip()
+                        s_str = s_str.str.replace(',', '.', regex=False)
+                        return pd.to_numeric(s_str, errors='coerce').fillna(0)
+                    else:
+                        return pd.to_numeric(serie, errors='coerce').fillna(0)
+
+                fin_dict = dict(zip(
+                    df_financeiro[col_id_fin].astype(str).str.strip(), 
+                    limpar_val_fin(df_financeiro[col_quantia_fin])
+                ))
+                df_limpo['Valor_Financeiro_Real'] = df_limpo[col_id_ped].astype(str).str.strip().map(fin_dict)
             else:
-                df_limpo['Data_Criacao'] = pd.NaT
+                df_limpo['Valor_Financeiro_Real'] = 0.0
+        else:
+            df_limpo['Valor_Financeiro_Real'] = 0.0
+            
+        # --- CONVERSÃO DAS DATAS ---
+        if 'Data de criação do pedido' in df_limpo.columns:
+            df_limpo['Data_Criacao'] = pd.to_datetime(df_limpo['Data de criação do pedido'], errors='coerce')
+        else:
+            df_limpo['Data_Criacao'] = pd.NaT
 
-            if 'Hora do pagamento do pedido' in df_limpo.columns:
-                df_limpo['Data_Pagamento'] = pd.to_datetime(df_limpo['Hora do pagamento do pedido'], errors='coerce')
+        if 'Hora do pagamento do pedido' in df_limpo.columns:
+            df_limpo['Data_Pagamento'] = pd.to_datetime(df_limpo['Hora do pagamento do pedido'], errors='coerce')
+        else:
+            df_limpo['Data_Pagamento'] = pd.NaT
+            
+        # --- FUNÇÃO PARA LIMPEZA DE VALORES ---
+        def limpar_coluna_valor(serie):
+            if serie is None:
+                return pd.Series(0.0, index=df_limpo.index)
+            if serie.dtype == object:
+                s_str = serie.astype(str).str.replace('R$', '', regex=False).str.strip()
+                s_str = s_str.str.replace(',', '.', regex=False)
+                return pd.to_numeric(s_str, errors='coerce').fillna(0)
             else:
-                df_limpo['Data_Pagamento'] = pd.NaT
-                
-            # --- FUNÇÃO PARA LIMPEZA DE VALORES ---
-            def limpar_coluna_valor(serie):
-                if serie is None:
-                    return pd.Series(0.0, index=df_limpo.index)
-                if serie.dtype == object:
-                    s_str = serie.astype(str).str.replace('R$', '', regex=False).str.strip()
-                    s_str = s_str.str.replace(',', '.', regex=False)
-                    return pd.to_numeric(s_str, errors='coerce').fillna(0)
-                else:
-                    return pd.to_numeric(serie, errors='coerce').fillna(0)
+                return pd.to_numeric(serie, errors='coerce').fillna(0)
 
-            # 1. Total Global (com frete - Montante Sujo)
-            total_global = limpar_coluna_valor(df_limpo['Total global']) if 'Total global' in df_limpo.columns else (
-                limpar_coluna_valor(df_limpo['Preço acordado']) if 'Preço acordado' in df_limpo.columns else 0.0
-            )
+        # 1. Total Global (com frete - Montante Sujo)
+        total_global = limpar_coluna_valor(df_limpo['Total global']) if 'Total global' in df_limpo.columns else (
+            limpar_coluna_valor(df_limpo['Preço acordado']) if 'Preço acordado' in df_limpo.columns else 0.0
+        )
 
-            # 2. Componentes de Frete para dedução
-            est_frete = limpar_coluna_valor(df_limpo['Valor estimado do frete']) if 'Valor estimado do frete' in df_limpo.columns else 0.0
-            desc_frete = limpar_coluna_valor(df_limpo['Desconto de Frete Aproximado']) if 'Desconto de Frete Aproximado' in df_limpo.columns else 0.0
+        # 2. Componentes de Frete para dedução estimada
+        est_frete = limpar_coluna_valor(df_limpo['Valor estimado do frete']) if 'Valor estimado do frete' in df_limpo.columns else 0.0
+        desc_frete = limpar_coluna_valor(df_limpo['Desconto de Frete Aproximado']) if 'Desconto de Frete Aproximado' in df_limpo.columns else 0.0
 
-            # 3. Ajuste por participação em ação comercial
-            ajuste_comercial = limpar_coluna_valor(df_limpo['Ajuste por participação em ação comercial']) if 'Ajuste por participação em ação comercial' in df_limpo.columns else 0.0
+        # 3. Ajuste por participação em ação comercial
+        ajuste_comercial = limpar_coluna_valor(df_limpo['Ajuste por participação em ação comercial']) if 'Ajuste por participação em ação comercial' in df_limpo.columns else 0.0
 
-            # --- CÁLCULOS FINAIS POR PEDIDO ---
-            df_limpo['Valor_Sujo'] = total_global + ajuste_comercial
-            frete_liquido = est_frete - desc_frete
-            df_limpo['Valor_Produto'] = total_global - frete_liquido + ajuste_comercial
-                
-            return df_limpo
+        # --- CÁLCULOS FINAIS POR PEDIDO ---
+        df_limpo['Valor_Sujo'] = total_global + ajuste_comercial
+        frete_liquido = est_frete - desc_frete
+        valor_produto_estimado = total_global - frete_liquido + ajuste_comercial
+        
+        val_real_limpo = limpar_coluna_valor(df_limpo['Valor_Financeiro_Real'])
+        
+        # Valor Liberado exato (apenas o que veio do financeiro)
+        df_limpo['Valor_Liberado'] = val_real_limpo
+        
+        # Valor do Produto (Real se houver, senão estimado)
+        df_limpo['Valor_Produto'] = [
+            real if real > 0 else est 
+            for real, est in zip(val_real_limpo, valor_produto_estimado)
+        ]
+            
+        return df_limpo
             
     except Exception as e:
         st.error(f"Erro de ligação com o Drive: {e}")
@@ -199,6 +269,7 @@ if df is not None and not df.empty:
 
     # Totais gerais (Válidos)
     tot_produto_val = df_periodo[validados_mask]['Valor_Produto'].sum() if 'Valor_Produto' in df_periodo.columns else 0.0
+    tot_liberado_val = df_periodo[validados_mask]['Valor_Liberado'].sum() if 'Valor_Liberado' in df_periodo.columns else 0.0
     tot_sujo_val = df_periodo[validados_mask]['Valor_Sujo'].sum() if 'Valor_Sujo' in df_periodo.columns else 0.0
     
     # --- EXIBIÇÃO EM MÉTRICAS ---
@@ -214,10 +285,12 @@ if df is not None and not df.empty:
     
     st.markdown("<br>", unsafe_allow_html=True)
     
-    col_fat1, col_fat2 = st.columns(2)
+    col_fat1, col_fat2, col_fat3 = st.columns(3)
     with col_fat1:
-        st.metric("🎯 Montante de Produtos (Sem Frete / Sua Renda)", fmt_val(tot_produto_val))
+        st.metric("🎯 Montante de Produtos (Sua Renda Total)", fmt_val(tot_produto_val))
     with col_fat2:
+        st.metric("💰 Valor Liberado (Já Pago / Saldo)", fmt_val(tot_liberado_val))
+    with col_fat3:
         st.metric("📦 Montante Bruto / Sujo (Com Frete)", fmt_val(tot_sujo_val))
     
     st.divider()
@@ -225,15 +298,16 @@ if df is not None and not df.empty:
     # --- CÁLCULOS POR ABA ---
     def calc_aba(mask):
         p = df_periodo[mask]['Valor_Produto'].sum() if 'Valor_Produto' in df_periodo.columns else 0.0
+        l = df_periodo[mask]['Valor_Liberado'].sum() if 'Valor_Liberado' in df_periodo.columns else 0.0
         s = df_periodo[mask]['Valor_Sujo'].sum() if 'Valor_Sujo' in df_periodo.columns else 0.0
-        return p, s
+        return p, l, s
 
-    p_val, s_val = calc_aba(validados_mask)
-    p_naopag, s_naopag = calc_aba(nao_pago_mask)
-    p_aenv, s_aenv = calc_aba(a_enviar_mask)
-    p_env, s_env = calc_aba(enviado_mask)
-    p_conc, s_conc = calc_aba(concluido_mask)
-    p_canc, s_canc = calc_aba(cancelados_mask)
+    p_val, l_val, s_val = calc_aba(validados_mask)
+    p_naopag, l_naopag, s_naopag = calc_aba(nao_pago_mask)
+    p_aenv, l_aenv, s_aenv = calc_aba(a_enviar_mask)
+    p_env, l_env, s_env = calc_aba(enviado_mask)
+    p_conc, l_conc, s_conc = calc_aba(concluido_mask)
+    p_canc, l_canc, s_canc = calc_aba(cancelados_mask)
 
     # --- DETALHAMENTO INTERATIVO POR ABAS (TABS) LIMPAS ---
     st.subheader("📋 Detalhamento dos Pedidos do Período")
@@ -247,7 +321,7 @@ if df is not None and not df.empty:
         f"❌ Cancelados ({cancelados_cnt})"
     ])
     
-    def exibir_tabela_e_montantes(mask_filtro, prod_val, sujo_val, mostrar_motivo=False):
+    def exibir_tabela_e_montantes(mask_filtro, prod_val, lib_val, sujo_val, mostrar_motivo=False):
         if mask_filtro.sum() > 0:
             df_show = df_periodo[mask_filtro].copy()
             cols_exibir = [col_id, 'Data de criação do pedido']
@@ -257,6 +331,8 @@ if df is not None and not df.empty:
                 cols_exibir.append('Ajuste por participação em ação comercial')
             if 'Valor_Produto' in df_show.columns:
                 cols_exibir.append('Valor_Produto')
+            if 'Valor_Liberado' in df_show.columns:
+                cols_exibir.append('Valor_Liberado')
             if 'Valor_Sujo' in df_show.columns:
                 cols_exibir.append('Valor_Sujo')
             if col_status and col_status in df_show.columns:
@@ -268,39 +344,42 @@ if df is not None and not df.empty:
                 
             df_show_fmt = df_show[cols_exibir].copy()
             if 'Valor_Produto' in df_show_fmt.columns:
-                df_show_fmt['Montante Produto (Sem Frete)'] = df_show_fmt['Valor_Produto'].apply(fmt_val)
+                df_show_fmt['Montante Produto'] = df_show_fmt['Valor_Produto'].apply(fmt_val)
                 df_show_fmt = df_show_fmt.drop(columns=['Valor_Produto'])
+            if 'Valor_Liberado' in df_show_fmt.columns:
+                df_show_fmt['Valor Liberado'] = df_show_fmt['Valor_Liberado'].apply(fmt_val)
+                df_show_fmt = df_show_fmt.drop(columns=['Valor_Liberado'])
             if 'Valor_Sujo' in df_show_fmt.columns:
-                df_show_fmt['Montante Bruto (Com Frete)'] = df_show_fmt['Valor_Sujo'].apply(fmt_val)
+                df_show_fmt['Montante Bruto'] = df_show_fmt['Valor_Sujo'].apply(fmt_val)
                 df_show_fmt = df_show_fmt.drop(columns=['Valor_Sujo'])
                 
             st.dataframe(df_show_fmt, use_container_width=True)
             
             # Exibe os montantes abaixo da tabela
             st.markdown(
-                f"**Resumo da Categoria:** &nbsp;&nbsp; 🎯 **Montante de Produtos (Sua Renda):** `{fmt_val(prod_val)}` &nbsp;&nbsp;|&nbsp;&nbsp; 📦 **Montante Bruto (Com Frete):** `{fmt_val(sujo_val)}`",
+                f"**Resumo da Categoria:** &nbsp;&nbsp; 🎯 **Renda Total:** `{fmt_val(prod_val)}` &nbsp;&nbsp;|&nbsp;&nbsp; 💰 **Valor Liberado:** `{fmt_val(lib_val)}` &nbsp;&nbsp;|&nbsp;&nbsp; 📦 **Bruto:** `{fmt_val(sujo_val)}`",
                 unsafe_allow_html=True
             )
         else:
             st.info("Nenhum pedido encontrado nesta categoria para o período selecionado.")
 
     with tab_val:
-        exibir_tabela_e_montantes(validados_mask, p_val, s_val)
+        exibir_tabela_e_montantes(validados_mask, p_val, l_val, s_val)
         
     with tab_naopag:
-        exibir_tabela_e_montantes(nao_pago_mask, p_naopag, s_naopag, mostrar_motivo=True)
+        exibir_tabela_e_montantes(nao_pago_mask, p_naopag, l_naopag, s_naopag, mostrar_motivo=True)
         
     with tab_aenv:
-        exibir_tabela_e_montantes(a_enviar_mask, p_aenv, s_aenv)
+        exibir_tabela_e_montantes(a_enviar_mask, p_aenv, l_aenv, s_aenv)
         
     with tab_env:
-        exibir_tabela_e_montantes(enviado_mask, p_env, s_env)
+        exibir_tabela_e_montantes(enviado_mask, p_env, l_env, s_env)
         
     with tab_conc:
-        exibir_tabela_e_montantes(concluido_mask, p_conc, s_conc)
+        exibir_tabela_e_montantes(concluido_mask, p_conc, l_conc, s_conc)
         
     with tab_canc:
-        exibir_tabela_e_montantes(cancelados_mask, p_canc, s_canc, mostrar_motivo=True)
+        exibir_tabela_e_montantes(cancelados_mask, p_canc, l_canc, s_canc, mostrar_motivo=True)
 
     st.divider()
     
@@ -313,11 +392,14 @@ if df is not None and not df.empty:
             
             if not resultado.empty:
                 st.success(f"✅ Encontrado(s) registo(s) para este ID:")
-                cols_mostrar = [c for c in [col_id, col_status, col_motivo, 'Nome do Produto', 'Total global', 'Ajuste por participação em ação comercial', 'Valor_Produto', 'Valor_Sujo', 'Data de criação do pedido'] if c and c in resultado.columns]
+                cols_mostrar = [c for c in [col_id, col_status, col_motivo, 'Nome do Produto', 'Total global', 'Ajuste por participação em ação comercial', 'Valor_Produto', 'Valor_Liberado', 'Valor_Sujo', 'Data de criação do pedido'] if c and c in resultado.columns]
                 res_fmt = resultado[cols_mostrar].copy()
                 if 'Valor_Produto' in res_fmt.columns:
                     res_fmt['Montante Produto'] = res_fmt['Valor_Produto'].apply(fmt_val)
                     res_fmt = res_fmt.drop(columns=['Valor_Produto'])
+                if 'Valor_Liberado' in res_fmt.columns:
+                    res_fmt['Valor Liberado'] = res_fmt['Valor_Liberado'].apply(fmt_val)
+                    res_fmt = res_fmt.drop(columns=['Valor_Liberado'])
                 if 'Valor_Sujo' in res_fmt.columns:
                     res_fmt['Montante Bruto'] = res_fmt['Valor_Sujo'].apply(fmt_val)
                     res_fmt = res_fmt.drop(columns=['Valor_Sujo'])
@@ -329,9 +411,9 @@ if df is not None and not df.empty:
             
     st.divider()
     with st.expander("Ver lista de pedidos (Tabela Completa do Período)"):
-        tabela_visual = df_periodo.drop(columns=['Valor_Sujo', 'Valor_Produto'], errors='ignore')
+        tabela_visual = df_periodo.drop(columns=['Valor_Sujo', 'Valor_Produto', 'Valor_Liberado', 'Valor_Financeiro_Real'], errors='ignore')
         if 'Data_Criacao' in tabela_visual.columns:
             tabela_visual['Data Criação'] = tabela_visual['Data_Criacao'].dt.strftime('%d/%m/%Y %H:%M')
         st.dataframe(tabela_visual, use_container_width=True)
 else:
-    st.info("A pasta está vazia ou a aguardar ficheiros. Adicione a sua primeira folha de cálculo no Google Drive!")
+    st.info("A pasta principal ou as subpastas 'pedidos' e 'financeiro' estão vazias ou a aguardar ficheiros no Google Drive!")
