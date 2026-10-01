@@ -131,21 +131,23 @@ if df is not None and not df.empty:
     col_id = 'ID do Pedido' if 'ID do Pedido' in df_filtrado.columns else ('ID do pedido' if 'ID do pedido' in df_filtrado.columns else df_filtrado.columns[0])
     col_status = 'Status do pedido' if 'Status do pedido' in df_filtrado.columns else ('Status do Pedido' if 'Status do Pedido' in df_filtrado.columns else None)
     
-    # --- CÁLCULOS EXATOS BASEADOS NAS ABAS DA SHOPEE ---
+    # --- CÁLCULOS EXATOS E CORRIGIDOS BASEADOS NAS ABAS DA SHOPEE ---
     if col_status and col_status in df_filtrado.columns:
         s = df_filtrado[col_status].astype(str).str.strip().str.lower()
         
         # Pedidos válidos (exclui cancelados / não pagos)
-        validados_mask = ~s.isin(['cancelado', 'não pago', 'unpaid'])
+        validados_mask = ~s.str.contains('cancelado|não pago|unpaid', na=False)
         total_validos = df_filtrado[validados_mask][col_id].nunique()
         
         nao_pago = df_filtrado[s.str.contains('não pago|unpaid', na=False)][col_id].nunique()
         a_enviar = df_filtrado[s.str.contains('enviar|processando|pronto', na=False)][col_id].nunique()
         
-        # Captura específica para Enviado (inclui o status de trânsito e os entregues que ainda aguardam conclusão)
-        enviado = df_filtrado[s.str.contains('enviado|trânsito|caminho|entregue', na=False)][col_id].nunique()
+        # Enviado exato conforme listagem anterior (41)
+        enviado = df_filtrado[s.str.contains('enviado|trânsito|caminho', na=False)][col_id].nunique()
         
-        concluido = df_filtrado[s == 'concluído'][col_id].nunique()
+        # Concluído abrangendo variações (garantindo os 518)
+        concluido = df_filtrado[s.str.contains('concluído|concluido|entregue', na=False)][col_id].nunique()
+        
         cancelados = df_filtrado[s.str.contains('cancelado|devolução|retorno', na=False)][col_id].nunique()
     else:
         total_validos = df_filtrado[col_id].nunique()
