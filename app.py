@@ -200,16 +200,27 @@ if df is not None and not df.empty:
     
     st.divider()
     
-    # --- DETALHAMENTO INTERATIVO POR ABAS (TABS) ---
+    # --- FUNÇÃO AUXILIAR PARA FORMATAÇÃO DE MONTANTES ---
+    def fmt_val(val):
+        return f"R$ {val:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+
+    val_validados = df_periodo[validados_mask]['Valor_Numerico'].sum() if 'Valor_Numerico' in df_periodo.columns else 0.0
+    val_naopago = df_periodo[nao_pago_mask]['Valor_Numerico'].sum() if 'Valor_Numerico' in df_periodo.columns else 0.0
+    val_aenviar = df_periodo[a_enviar_mask]['Valor_Numerico'].sum() if 'Valor_Numerico' in df_periodo.columns else 0.0
+    val_enviado = df_periodo[enviado_mask]['Valor_Numerico'].sum() if 'Valor_Numerico' in df_periodo.columns else 0.0
+    val_concluido = df_periodo[concluido_mask]['Valor_Numerico'].sum() if 'Valor_Numerico' in df_periodo.columns else 0.0
+    val_cancelados = df_periodo[cancelados_mask]['Valor_Numerico'].sum() if 'Valor_Numerico' in df_periodo.columns else 0.0
+
+    # --- DETALHAMENTO INTERATIVO POR ABAS (TABS) COM MONTANTES ---
     st.subheader("📋 Detalhamento dos Pedidos do Período")
     
     tab_val, tab_naopag, tab_aenv, tab_env, tab_conc, tab_canc = st.tabs([
-        f"📦 Válidos ({total_validos})",
-        f"⏳ Não pago ({nao_pago_cnt})",
-        f"📤 A Enviar ({a_enviar_cnt})",
-        f"🚚 Enviado ({enviado_cnt})",
-        f"✅ Concluído ({concluido_cnt})",
-        f"❌ Cancelados ({cancelados_cnt})"
+        f"📦 Válidos ({total_validos}) — {fmt_val(val_validados)}",
+        f"⏳ Não pago ({nao_pago_cnt}) — {fmt_val(val_naopago)}",
+        f"📤 A Enviar ({a_enviar_cnt}) — {fmt_val(val_aenviar)}",
+        f"🚚 Enviado ({enviado_cnt}) — {fmt_val(val_enviado)}",
+        f"✅ Concluído ({concluido_cnt}) — {fmt_val(val_concluido)}",
+        f"❌ Cancelados ({cancelados_cnt}) — {fmt_val(val_cancelados)}"
     ])
     
     def exibir_tabela(mask_filtro, mostrar_motivo=False):
