@@ -58,16 +58,13 @@ def carregar_dados_do_drive():
             
             df_limpo = df_completo.copy()
                 
-            # --- TRATAMENTO ROBUSTO DA DATA ---
-            # Tenta converter 'Hora do pagamento do pedido', se falhar tenta 'Data de criação do pedido' ou 'Data'
-            col_data_alvo = None
-            for c in ['Hora do pagamento do pedido', 'Data de criação do pedido', 'Data']:
-                if c in df_limpo.columns:
-                    col_data_alvo = c
-                    break
-            
-            if col_data_alvo:
-                df_limpo['Data'] = pd.to_datetime(df_limpo[col_data_alvo], errors='coerce')
+            # --- VALIDAÇÃO DA DATA PELA COLUNA 'Data de criação do pedido' ---
+            if 'Data de criação do pedido' in df_limpo.columns:
+                df_limpo['Data'] = pd.to_datetime(df_limpo['Data de criação do pedido'], errors='coerce')
+            elif 'Hora do pagamento do pedido' in df_limpo.columns:
+                df_limpo['Data'] = pd.to_datetime(df_limpo['Hora do pagamento do pedido'], errors='coerce')
+            elif 'Data' in df_limpo.columns:
+                df_limpo['Data'] = pd.to_datetime(df_limpo['Data'], dayfirst=True, errors='coerce')
             else:
                 df_limpo['Data'] = pd.NaT
                 
@@ -104,7 +101,7 @@ if df is not None and not df.empty:
     st.sidebar.header("🎛️ Filtros do Painel")
     
     opcao_tempo = st.sidebar.selectbox(
-        "Período:", 
+        "Período (Criação do Pedido):", 
         ["Todo o período", "Este mês", "Últimos 30 dias", "Últimos 7 dias", "Personalizado"]
     )
     
@@ -112,11 +109,8 @@ if df is not None and not df.empty:
     
     # Validação de datas válidas
     if 'Data' in df_filtrado.columns:
-        # Pega a data máxima presente nos dados para servir de referência caso "hoje" esteja fora do período das planilhas importadas
         max_data = df_filtrado['Data'].max()
         hoje = pd.Timestamp.today().normalize()
-        
-        # Se os dados carregados forem de meses passados (ex: 2025/2026), ajusta a referência do "Este mês" para o mês mais recente da base
         ref_data = max_data if pd.notna(max_data) else hoje
         
         if opcao_tempo == "Este mês":
@@ -188,7 +182,7 @@ if df is not None and not df.empty:
             
             if not resultado.empty:
                 st.success(f"✅ Encontrado(s) {len(resultado)} registo(s) para este ID:")
-                cols_mostrar = [c for c in [col_id, col_status, 'Nome do Produto', 'Preço acordado', 'Quantidade', 'Hora do pagamento do pedido'] if c and c in resultado.columns]
+                cols_mostrar = [c for c in [col_id, col_status, 'Nome do Produto', 'Preço acordado', 'Quantidade', 'Data de criação do pedido'] if c and c in resultado.columns]
                 st.dataframe(resultado[cols_mostrar], use_container_width=True)
             else:
                 st.error("❌ Pedido não encontrado.")
