@@ -58,13 +58,18 @@ def carregar_dados_do_drive():
             
             df_limpo = df_completo.copy()
                 
-            # --- TRATAMENTO DA DATA: Hora do pagamento do pedido (Coluna L) ---
-            if 'Hora do pagamento do pedido' in df_limpo.columns:
-                df_limpo['Data'] = pd.to_datetime(df_limpo['Hora do pagamento do pedido'], errors='coerce')
-            elif 'Data de criação do pedido' in df_limpo.columns:
-                df_limpo['Data'] = pd.to_datetime(df_limpo['Data de criação do pedido'], errors='coerce')
-            elif 'Data' in df_limpo.columns:
-                df_limpo['Data'] = pd.to_datetime(df_limpo['Data'], dayfirst=True, errors='coerce')
+            # --- TRATAMENTO ROBUSTO DA DATA ---
+            # Tenta converter 'Hora do pagamento do pedido', se falhar tenta 'Data de criação do pedido' ou 'Data'
+            col_data_alvo = None
+            for c in ['Hora do pagamento do pedido', 'Data de criação do pedido', 'Data']:
+                if c in df_limpo.columns:
+                    col_data_alvo = c
+                    break
+            
+            if col_data_alvo:
+                df_limpo['Data'] = pd.to_datetime(df_limpo[col_data_alvo], errors='coerce')
+            else:
+                df_limpo['Data'] = pd.NaT
                 
             # CÁLCULO DO VALOR: Preço acordado (R) * Quantidade (S)
             if 'Preço acordado' in df_limpo.columns and 'Quantidade' in df_limpo.columns:
@@ -96,58 +101,56 @@ df = carregar_dados_do_drive()
 
 if df is not None and not df.empty:
     
-    if 'Data' not in df.columns:
-        st.warning("⚠ Atenção: Não foi encontrada coluna de data válida.")
-        df_filtrado = df
-    else:
-        st.sidebar.header("🎛️ Filtros do Painel")
-        
-        opcao_tempo = st.sidebar.selectbox(
-            "Período (Base: Pagamento):", 
-            ["Todo o período", "Este mês", "Últimos 30 dias", "Últimos 7 dias", "Personalizado"]
-        )
-        
+    st.sidebar.header("🎛️ Filtros do Painel")
+    
+    opcao_tempo = st.sidebar.selectbox(
+        "Período:", 
+        ["Todo o período", "Este mês", "Últimos 30 dias", "Últimos 7 dias", "Personalizado"]
+    )
+    
+    df_filtrado = df.copy()
+    
+    # Validação de datas válidas
+    if 'Data' in df_filtrado.columns:
+        # Pega a data máxima presente nos dados para servir de referência caso "hoje" esteja fora do período das planilhas importadas
+        max_data = df_filtrado['Data'].max()
         hoje = pd.Timestamp.today().normalize()
-        df_filtrado = df.copy()
         
-        # Filtro de Tempo
+        # Se os dados carregados forem de meses passados (ex: 2025/2026), ajusta a referência do "Este mês" para o mês mais recente da base
+        ref_data = max_data if pd.notna(max_data) else hoje
+        
         if opcao_tempo == "Este mês":
-            inicio = hoje.replace(day=1)
-            df_filtrado = df_filtrado[df_filtrado['Data'] >= inicio]
+            inicio = ref_data.replace(day=1)
+            fim = (inicio + pd.DateOffset(months=1))
+            df_filtrado = df_filtrado[(df_filtrado['Data'] >= inicio) & (df_filtrado['Data'] < fim)]
         elif opcao_tempo == "Últimos 30 dias":
-            inicio = hoje - pd.Timedelta(days=30)
+            inicio = ref_data - pd.Timedelta(days=30)
             df_filtrado = df_filtrado[df_filtrado['Data'] >= inicio]
         elif opcao_tempo == "Últimos 7 dias":
-            inicio = hoje - pd.Timedelta(days=7)
+            inicio = ref_data - pd.Timedelta(days=7)
             df_filtrado = df_filtrado[df_filtrado['Data'] >= inicio]
         elif opcao_tempo == "Personalizado":
-            d_inicio = st.sidebar.date_input("Data Inicial", hoje - pd.Timedelta(days=30))
-            d_fim = st.sidebar.date_input("Data Final", hoje)
+            d_inicio = st.sidebar.date_input("Data Inicial", (ref_data - pd.Timedelta(days=30)).date())
+            d_fim = st.sidebar.date_input("Data Final", ref_data.date())
             df_filtrado = df_filtrado[(df_filtrado['Data'] >= pd.to_datetime(d_inicio)) & (df_filtrado['Data'] <= pd.to_datetime(d_fim) + pd.Timedelta(days=1))]
-                
+            
     st.markdown("<br>", unsafe_allow_html=True)
     
     # Identifica colunas com segurança
     col_id = 'ID do Pedido' if 'ID do Pedido' in df_filtrado.columns else ('ID do pedido' if 'ID do pedido' in df_filtrado.columns else df_filtrado.columns[0])
     col_status = 'Status do pedido' if 'Status do pedido' in df_filtrado.columns else ('Status do Pedido' if 'Status do Pedido' in df_filtrado.columns else None)
     
-    # --- CÁLCULOS EXATOS E CORRIGIDOS BASEADOS NAS ABAS DA SHOPEE ---
+    # --- CÁLCULOS EXATOS ---
     if col_status and col_status in df_filtrado.columns:
         s = df_filtrado[col_status].astype(str).str.strip().str.lower()
         
-        # Pedidos válidos (exclui cancelados / não pagos)
         validados_mask = ~s.str.contains('cancelado|não pago|unpaid', na=False)
         total_validos = df_filtrado[validados_mask][col_id].nunique()
         
         nao_pago = df_filtrado[s.str.contains('não pago|unpaid', na=False)][col_id].nunique()
         a_enviar = df_filtrado[s.str.contains('enviar|processando|pronto', na=False)][col_id].nunique()
-        
-        # Enviado exato conforme listagem anterior (41)
         enviado = df_filtrado[s.str.contains('enviado|trânsito|caminho', na=False)][col_id].nunique()
-        
-        # Concluído abrangendo variações (garantindo os 518)
         concluido = df_filtrado[s.str.contains('concluído|concluido|entregue', na=False)][col_id].nunique()
-        
         cancelados = df_filtrado[s.str.contains('cancelado|devolução|retorno', na=False)][col_id].nunique()
     else:
         total_validos = df_filtrado[col_id].nunique()
