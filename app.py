@@ -188,6 +188,47 @@ if df is not None and not df.empty:
     
     st.divider()
     
+    # --- DETALHAMENTO DE PEDIDOS VÁLIDOS E CANCELADOS DO PERÍODO ---
+    st.subheader("📋 Detalhamento dos Pedidos do Período")
+    
+    tab_val, tab_canc = st.tabs([f"✅ Pedidos Válidos ({total_validos})", f"❌ Pedidos Cancelados ({cancelados})"])
+    
+    with tab_val:
+        if total_validos > 0:
+            df_v_show = df_periodo[validados_mask].copy()
+            cols_exibir = [col_id]
+            if 'Total global' in df_v_show.columns:
+                cols_exibir.append('Total global')
+            elif 'Preço acordado' in df_v_show.columns:
+                cols_exibir.append('Preço acordado')
+            if col_status and col_status in df_v_show.columns:
+                cols_exibir.append(col_status)
+            if 'Nome do Produto' in df_v_show.columns:
+                cols_exibir.append('Nome do Produto')
+                
+            st.dataframe(df_v_show[cols_exibir], use_container_width=True)
+        else:
+            st.info("Nenhum pedido válido encontrado neste período.")
+            
+    with tab_canc:
+        if cancelados > 0:
+            df_c_show = df_periodo[cancelados_mask].copy()
+            cols_exibir_c = [col_id]
+            if 'Total global' in df_c_show.columns:
+                cols_exibir_c.append('Total global')
+            elif 'Preço acordado' in df_c_show.columns:
+                cols_exibir_c.append('Preço acordado')
+            if col_status and col_status in df_c_show.columns:
+                cols_exibir_c.append(col_status)
+            if 'Nome do Produto' in df_c_show.columns:
+                cols_exibir_c.append('Nome do Produto')
+                
+            st.dataframe(df_c_show[cols_exibir_c], use_container_width=True)
+        else:
+            st.success("Nenhum pedido cancelado neste período! 🎉")
+
+    st.divider()
+    
     st.subheader("🔍 Consultar Pedido Específico")
     pedido_id = st.text_input("Digite o ID do Pedido (Ex: 230910ABCDEF):").strip()
     
