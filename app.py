@@ -102,12 +102,12 @@ if df is not None and not df.empty:
     
     opcao_tempo = st.sidebar.selectbox(
         "Período (Criação do Pedido):", 
-        ["Todo o período", "Este mês", "Últimos 30 dias", "Últimos 7 dias", "Personalizado"]
+        ["Todo o período", "Este mês", "Últimos 7 dias", "Últimos 30 dias", "Personalizado"]
     )
     
     df_filtrado = df.copy()
     
-    # Validação de datas válidas
+    # Validação de datas baseada na data máxima da base de dados para precisão absoluta
     if 'Data' in df_filtrado.columns:
         max_data = df_filtrado['Data'].max()
         hoje = pd.Timestamp.today().normalize()
@@ -117,14 +117,15 @@ if df is not None and not df.empty:
             inicio = ref_data.replace(day=1)
             fim = (inicio + pd.DateOffset(months=1))
             df_filtrado = df_filtrado[(df_filtrado['Data'] >= inicio) & (df_filtrado['Data'] < fim)]
+        elif opcao_tempo == "Últimos 7 dias":
+            # Considera os últimos 7 dias a partir do registro mais recente da base
+            inicio = ref_data - pd.Timedelta(days=7)
+            df_filtrado = df_filtrado[(df_filtrado['Data'] >= inicio) & (df_filtrado['Data'] <= ref_data + pd.Timedelta(days=1))]
         elif opcao_tempo == "Últimos 30 dias":
             inicio = ref_data - pd.Timedelta(days=30)
             df_filtrado = df_filtrado[df_filtrado['Data'] >= inicio]
-        elif opcao_tempo == "Últimos 7 dias":
-            inicio = ref_data - pd.Timedelta(days=7)
-            df_filtrado = df_filtrado[df_filtrado['Data'] >= inicio]
         elif opcao_tempo == "Personalizado":
-            d_inicio = st.sidebar.date_input("Data Inicial", (ref_data - pd.Timedelta(days=30)).date())
+            d_inicio = st.sidebar.date_input("Data Inicial", (ref_data - pd.Timedelta(days=7)).date())
             d_fim = st.sidebar.date_input("Data Final", ref_data.date())
             df_filtrado = df_filtrado[(df_filtrado['Data'] >= pd.to_datetime(d_inicio)) & (df_filtrado['Data'] <= pd.to_datetime(d_fim) + pd.Timedelta(days=1))]
             
