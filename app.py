@@ -58,28 +58,30 @@ def carregar_dados_do_drive():
             
             df_limpo = df_completo.copy()
                 
-            # --- VALIDAÇÃO DA DATA PELA COLUNA 'Data de criação do pedido' ---
-            if 'Data de criação do pedido' in df_limpo.columns:
-                df_limpo['Data'] = pd.to_datetime(df_limpo['Data de criação do pedido'], errors='coerce')
-            elif 'Hora do pagamento do pedido' in df_limpo.columns:
-                df_limpo['Data'] = pd.to_datetime(df_limpo['Hora do pagamento do pedido'], errors='coerce')
-            elif 'Data' in df_limpo.columns:
-                df_limpo['Data'] = pd.to_datetime(df_limpo['Data'], dayfirst=True, errors='coerce')
+            # --- CONVERSÃO DAS DATAS ---
+            if 'Hora do pagamento do pedido' in df_limpo.columns:
+                df_limpo['Data_Pagamento'] = pd.to_datetime(df_limpo['Hora do pagamento do pedido'], errors='coerce')
             else:
-                df_limpo['Data'] = pd.NaT
+                df_limpo['Data_Pagamento'] = pd.NaT
+
+            if 'Data de criação do pedido' in df_limpo.columns:
+                df_limpo['Data_Criacao'] = pd.to_datetime(df_limpo['Data de criação do pedido'], errors='coerce')
+            else:
+                df_limpo['Data_Criacao'] = pd.NaT
                 
-            # CÁLCULO DO VALOR: Preço acordado (R) * Quantidade (S)
-            if 'Preço acordado' in df_limpo.columns and 'Quantidade' in df_limpo.columns:
-                preco = df_limpo['Preço acordado'].astype(str).str.replace('R$', '', regex=False)
-                preco = preco.str.replace('.', '', regex=False)
-                preco = preco.str.replace(',', '.', regex=False)
-                preco = pd.to_numeric(preco, errors='coerce').fillna(0)
-                
-                qtd = pd.to_numeric(df_limpo['Quantidade'], errors='coerce').fillna(0)
-                df_limpo['Valor_Numerico'] = preco * qtd
-            elif 'Valor' in df_limpo.columns:
-                valor_seg = df_limpo['Valor'].astype(str).str.replace('R$', '', regex=False).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
-                df_limpo['Valor_Numerico'] = pd.to_numeric(valor_seg, errors='coerce').fillna(0)
+            # --- TRATAMENTO ROBUSTO DO VALOR ---
+            # Prioriza a coluna 'Valor Total' da Shopee que representa o valor final do pedido pago pelo cliente
+            coluna_valor_alvo = None
+            for c in ['Valor Total', 'Total global', 'Preço acordado']:
+                if c in df_limpo.columns:
+                    coluna_valor_alvo = c
+                    break
+            
+            if coluna_valor_alvo:
+                val_str = df_limpo[coluna_valor_alvo].astype(str).str.replace('R$', '', regex=False)
+                val_str = val_str.str.replace('.', '', regex=False)
+                val_str = val_str.str.replace(',', '.', regex=False)
+                df_limpo['Valor_Numerico'] = pd.to_numeric(val_str, errors='coerce').fillna(0)
             else:
                 df_limpo['Valor_Numerico'] = 0.0
                 
@@ -100,38 +102,42 @@ if df is not None and not df.empty:
     
     st.sidebar.header("🎛️ Filtros do Painel")
     
+    tipo_data = st.sidebar.radio(
+        "Base de Data:",
+        ["Hora do Pagamento", "Data de Criação"]
+    )
+    
     opcao_tempo = st.sidebar.selectbox(
-        "Período (Criação do Pedido):", 
+        "Período:", 
         ["Todo o período", "Este mês", "Últimos 7 dias", "Últimos 30 dias", "Personalizado"]
     )
     
     df_filtrado = df.copy()
     
-    # Validação de datas baseada na data máxima da base de dados para precisão absoluta
-    if 'Data' in df_filtrado.columns:
-        max_data = df_filtrado['Data'].max()
+    coluna_ativa_data = 'Data_Pagamento' if tipo_data == "Hora do Pagamento" else 'Data_Criacao'
+    
+    if coluna_ativa_data in df_filtrado.columns:
+        max_data = df_filtrado[coluna_ativa_data].max()
         hoje = pd.Timestamp.today().normalize()
         ref_data = max_data if pd.notna(max_data) else hoje
         
         if opcao_tempo == "Este mês":
             inicio = ref_data.replace(day=1)
             fim = (inicio + pd.DateOffset(months=1))
-            df_filtrado = df_filtrado[(df_filtrado['Data'] >= inicio) & (df_filtrado['Data'] < fim)]
+            df_filtrado = df_filtrado[(df_filtrado[coluna_ativa_data] >= inicio) & (df_filtrado[coluna_ativa_data] < fim)]
         elif opcao_tempo == "Últimos 7 dias":
-            # Considera os últimos 7 dias a partir do registro mais recente da base
             inicio = ref_data - pd.Timedelta(days=7)
-            df_filtrado = df_filtrado[(df_filtrado['Data'] >= inicio) & (df_filtrado['Data'] <= ref_data + pd.Timedelta(days=1))]
+            df_filtrado = df_filtrado[(df_filtrado[coluna_ativa_data] >= inicio) & (df_filtrado[coluna_ativa_data] <= ref_data + pd.Timedelta(days=1))]
         elif opcao_tempo == "Últimos 30 dias":
             inicio = ref_data - pd.Timedelta(days=30)
-            df_filtrado = df_filtrado[df_filtrado['Data'] >= inicio]
+            df_filtrado = df_filtrado[df_filtrado[coluna_ativa_data] >= inicio]
         elif opcao_tempo == "Personalizado":
             d_inicio = st.sidebar.date_input("Data Inicial", (ref_data - pd.Timedelta(days=7)).date())
             d_fim = st.sidebar.date_input("Data Final", ref_data.date())
-            df_filtrado = df_filtrado[(df_filtrado['Data'] >= pd.to_datetime(d_inicio)) & (df_filtrado['Data'] <= pd.to_datetime(d_fim) + pd.Timedelta(days=1))]
+            df_filtrado = df_filtrado[(df_filtrado[coluna_ativa_data] >= pd.to_datetime(d_inicio)) & (df_filtrado[coluna_ativa_data] <= pd.to_datetime(d_fim) + pd.Timedelta(days=1))]
             
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # Identifica colunas com segurança
     col_id = 'ID do Pedido' if 'ID do Pedido' in df_filtrado.columns else ('ID do pedido' if 'ID do pedido' in df_filtrado.columns else df_filtrado.columns[0])
     col_status = 'Status do pedido' if 'Status do pedido' in df_filtrado.columns else ('Status do Pedido' if 'Status do Pedido' in df_filtrado.columns else None)
     
@@ -148,6 +154,7 @@ if df is not None and not df.empty:
         concluido = df_filtrado[s.str.contains('concluído|concluido|entregue', na=False)][col_id].nunique()
         cancelados = df_filtrado[s.str.contains('cancelado|devolução|retorno', na=False)][col_id].nunique()
     else:
+        validados_mask = df_filtrado.index.isin(df_filtrado.index)
         total_validos = df_filtrado[col_id].nunique()
         nao_pago = 0
         a_enviar = 0
@@ -155,7 +162,8 @@ if df is not None and not df.empty:
         concluido = total_validos
         cancelados = 0
 
-    valor_total = df_filtrado[validados_mask]['Valor_Numerico'].sum() if 'Valor_Numerico' in df_filtrado.columns and col_status else df_filtrado['Valor_Numerico'].sum()
+    # Utiliza a soma dos pedidos válidos usando a coluna de valor corrigida
+    valor_total = df_filtrado[validados_mask]['Valor_Numerico'].sum() if 'Valor_Numerico' in df_filtrado.columns else 0.0
     valor_formatado = f"R$ {valor_total:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
     
     # --- EXIBIÇÃO EM MÉTRICAS ESTILO SHOPEE ---
@@ -183,7 +191,7 @@ if df is not None and not df.empty:
             
             if not resultado.empty:
                 st.success(f"✅ Encontrado(s) {len(resultado)} registo(s) para este ID:")
-                cols_mostrar = [c for c in [col_id, col_status, 'Nome do Produto', 'Preço acordado', 'Quantidade', 'Data de criação do pedido'] if c and c in resultado.columns]
+                cols_mostrar = [c for c in [col_id, col_status, 'Nome do Produto', 'Valor Total', 'Quantidade', 'Hora do pagamento do pedido'] if c and c in resultado.columns]
                 st.dataframe(resultado[cols_mostrar], use_container_width=True)
             else:
                 st.error("❌ Pedido não encontrado.")
@@ -193,8 +201,8 @@ if df is not None and not df.empty:
     st.divider()
     with st.expander("Ver lista de pedidos (Tabela Completa)"):
         tabela_visual = df_filtrado.drop(columns=['Valor_Numerico'], errors='ignore')
-        if 'Data' in tabela_visual.columns:
-            tabela_visual['Data'] = tabela_visual['Data'].dt.strftime('%d/%m/%Y %H:%M')
+        if 'Data_Pagamento' in tabela_visual.columns:
+            tabela_visual['Data Pagamento'] = tabela_visual['Data_Pagamento'].dt.strftime('%d/%m/%Y %H:%M')
         st.dataframe(tabela_visual, use_container_width=True)
 else:
     st.info("A pasta está vazia ou a aguardar ficheiros. Adicione a sua primeira folha de cálculo no Google Drive!")
