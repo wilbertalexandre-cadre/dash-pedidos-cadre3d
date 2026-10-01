@@ -69,21 +69,21 @@ def carregar_dados_do_drive():
             else:
                 df_limpo['Data_Criacao'] = pd.NaT
                 
-            # --- TRATAMENTO PRECISO DO VALOR ---
-            if 'Valor Total' in df_limpo.columns:
-                val_col = df_limpo['Valor Total']
+            # --- TRATAMENTO PRECISO DO VALOR USANDO 'Total global' ---
+            if 'Total global' in df_limpo.columns:
+                val_col = df_limpo['Total global']
                 if val_col.dtype == object:
+                    # Remove 'R$', espaços e trata caso venha com vírgula ou ponto
                     val_str = val_col.astype(str).str.replace('R$', '', regex=False).str.strip()
-                    val_str = val_str.str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
+                    # Substitui vírgula por ponto caso venha no formato brasileiro antigo
+                    val_str = val_str.str.replace(',', '.', regex=False)
                     val_num = pd.to_numeric(val_str, errors='coerce').fillna(0)
                 else:
                     val_num = pd.to_numeric(val_col, errors='coerce').fillna(0)
                 df_limpo['Valor_Numerico'] = val_num
-            elif 'Preço acordado' in df_limpo.columns and 'Quantidade' in df_limpo.columns:
-                p_str = df_limpo['Preço acordado'].astype(str).str.replace('R$', '', regex=False).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
-                p_num = pd.to_numeric(p_str, errors='coerce').fillna(0)
-                q_num = pd.to_numeric(df_limpo['Quantidade'], errors='coerce').fillna(1)
-                df_limpo['Valor_Numerico'] = p_num * q_num
+            elif 'Preço acordado' in df_limpo.columns:
+                p_str = df_limpo['Preço acordado'].astype(str).str.replace('R$', '', regex=False).str.replace(',', '.', regex=False)
+                df_limpo['Valor_Numerico'] = pd.to_numeric(p_str, errors='coerce').fillna(0)
             else:
                 df_limpo['Valor_Numerico'] = 0.0
                 
@@ -192,7 +192,7 @@ if df is not None and not df.empty:
             
             if not resultado.empty:
                 st.success(f"✅ Encontrado(s) registo(s) para este ID:")
-                cols_mostrar = [c for c in [col_id, col_status, 'Nome do Produto', 'Valor Total', 'Hora do pagamento do pedido'] if c and c in resultado.columns]
+                cols_mostrar = [c for c in [col_id, col_status, 'Nome do Produto', 'Total global', 'Hora do pagamento do pedido'] if c and c in resultado.columns]
                 st.dataframe(resultado[cols_mostrar], use_container_width=True)
             else:
                 st.error("❌ Pedido não encontrado.")
