@@ -425,7 +425,7 @@ if df is not None and not df.empty:
 
     # ==================== PÁGINA: ESTATÍSTICAS ====================
     elif pagina_selecionada == "Estatísticas":
-        st.header(f"📊 Estatísticas Gerais e Mapa do Brasil ({opcao_tempo})")
+        st.header(f"📊 Estatísticas Gerais e Mapa Geográfico do Brasil ({opcao_tempo})")
         
         col_est1, col_est2, col_est3 = st.columns(3)
         with col_est1:
@@ -462,7 +462,15 @@ if df is not None and not df.empty:
                     hover_name='UF_Normalizada',
                     labels={'Quantidade': 'Volume de Pedidos'}
                 )
-                fig.update_geos(fitbounds="locations", visible=False)
+                fig.update_geos(
+                    scope="south america",
+                    center={"lat": -14.2350, "lon": -51.9253},
+                    projection_scale=3.5,
+                    visible=True,
+                    showcountries=True, countrycolor="RebeccaPurple",
+                    showcoastlines=True, coastlinecolor="RebeccaPurple",
+                    showland=True, landcolor="rgb(245, 245, 245)"
+                )
                 fig.update_layout(margin={"r":0, "t":0, "l":0, "b":0}, height=550)
                 
                 evento_clique = st.plotly_chart(fig, use_container_width=True, on_select="rerun")
