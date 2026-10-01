@@ -417,39 +417,17 @@ if df is not None and not df.empty:
             st.metric("🎯 Ticket Médio (Renda por Pedido)", fmt_val(tot_produto_val / total_validos if total_validos > 0 else 0.0))
             
         st.divider()
-        st.subheader("🗺️ Distribuição de Pedidos por Estado (Brasil)")
+        st.subheader("🗺️ Distribuição de Pedidos por Estado (UF)")
         
-        # Identificar coluna de estado/UF na base de pedidos
-        col_estado = next((c for c in df_periodo.columns if c.strip().lower() in ['estado', 'uf', 'província/estado', 'provincia/estado']), None)
+        # Busca estritamente pela coluna 'UF' (que costuma vir na coluna BH)
+        col_estado = next((c for c in df_periodo.columns if c.strip().upper() == 'UF'), None)
         
         if col_estado:
             df_validados_periodo = df_periodo[validados_mask].copy()
+            df_validados_periodo['UF_Normalizada'] = df_validados_periodo[col_estado].astype(str).str.strip().str.upper()
             
-            # Dicionário de conversão de nome de estado por extenso para sigla (UF)
-            mapa_estados_uf = {
-                'acre': 'AC', 'alagoas': 'AL', 'amapá': 'AP', 'amapa': 'AP', 'amazonas': 'AM',
-                'bahia': 'BA', 'ceará': 'CE', 'ceara': 'CE', 'distrito federal': 'DF', 'espírito santo': 'ES',
-                'espirito santo': 'ES', 'goiás': 'GO', 'goias': 'GO', 'maranhão': 'MA', 'maranhao': 'MA',
-                'mato grosso': 'MT', 'mato grosso do sul': 'MS', 'minas gerais': 'MG', 'pará': 'PA',
-                'para': 'PA', 'paraíba': 'PB', 'paraiba': 'PB', 'paraná': 'PR', 'parana': 'PR',
-                'pernambuco': 'PE', 'piauí': 'PI', 'piaui': 'PI', 'rio de janeiro': 'RJ',
-                'rio grande do norte': 'RN', 'rio grande do sul': 'RS', 'rondônia': 'RO', 'rondonia': 'RO',
-                'roraima': 'RR', 'santa catarina': 'SC', 'são paulo': 'SP', 'sao paulo': 'SP',
-                'sergipe': 'SE', 'tocantins': 'TO'
-            }
-            
-            def converter_para_sigla(val):
-                v_str = str(val).strip().lower()
-                if v_str in mapa_estados_uf:
-                    return mapa_estados_uf[v_str]
-                if len(v_str) == 2:
-                    return v_str.upper()
-                return v_str.title()
-
-            df_validados_periodo['UF'] = df_validados_periodo[col_estado].apply(converter_para_sigla)
-            
-            # Agrupar por estado para o gráfico
-            df_mapa = df_validados_periodo.groupby('UF').agg(
+            # Agrupar por estado (UF)
+            df_mapa = df_validados_periodo.groupby('UF_Normalizada').agg(
                 Quantidade=('ID do pedido' if 'ID do pedido' in df_validados_periodo.columns else df_validados_periodo.columns[0], 'nunique'),
                 Renda_Total=('Valor_Produto', 'sum')
             ).reset_index()
@@ -465,10 +443,10 @@ if df is not None and not df.empty:
             fig = px.bar(
                 df_mapa,
                 x='Quantidade',
-                y='UF',
+                y='UF_Normalizada',
                 text=df_mapa['Porcentagem'].apply(lambda x: f"{x:.1f}%"),
                 orientation='h',
-                labels={'Quantidade': 'Volume de Pedidos', 'UF': 'Estado (UF)'},
+                labels={'Quantidade': 'Volume de Pedidos', 'UF_Normalizada': 'Estado (UF)'},
                 title="Volume e Participação (%) por Estado"
             )
             fig.update_traces(textposition='outside')
@@ -489,7 +467,7 @@ if df is not None and not df.empty:
                 st.divider()
                 st.subheader(f"📍 Detalhamento para o Estado: {estado_selecionado}")
                 
-                df_estado = df_validados_periodo[df_validados_periodo['UF'] == estado_selecionado]
+                df_estado = df_validados_periodo[df_validados_periodo['UF_Normalizada'] == estado_selecionado]
                 qtd_est = df_estado[col_id].nunique()
                 renda_est = df_estado['Valor_Produto'].sum()
                 lib_est = df_estado['Valor_Liberado'].sum()
@@ -523,7 +501,7 @@ if df is not None and not df.empty:
             else:
                 st.info("💡 **Dica:** Clique em cima de qualquer barra de estado no gráfico acima para ver os pedidos, valores e top produtos específicos daquela região.")
         else:
-            st.warning("⚠️ Não foi encontrada uma coluna de 'Estado' nas planilhas de pedidos da Shopee para gerar a distribuição geográfica.")
+            st.warning("⚠️ Não foi encontrada uma coluna com o título 'UF' nas planilhas de pedidos da Shopee.")
 
 else:
     st.info("A pasta principal ou as subpastas 'pedidos' e 'financeiro' estão vazias ou a aguardar ficheiros no Google Drive!")
