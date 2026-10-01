@@ -111,7 +111,7 @@ def carregar_dados_do_drive():
         dfs_financeiro = ler_financeiro(pasta_financeiro_id)
         
         df_pedidos = pd.concat(dfs_pedidos, ignore_index=True) if dfs_pedidos else pd.DataFrame()
-        df_financeiro = pd.concat(dfs_financeiro, ignore_index=True) if df_financeiro else pd.DataFrame()
+        df_financeiro = pd.concat(dfs_financeiro, ignore_index=True) if dfs_financeiro else pd.DataFrame()
         
         if df_pedidos.empty:
             return pd.DataFrame()
@@ -464,7 +464,6 @@ if df is not None and not df.empty:
                 labels={'Quantidade': 'Volume de Pedidos'}
             )
             
-            # Forçar enquadramento geográfico exato centrado no Brasil com scope south america
             fig.update_geos(
                 scope="south america",
                 center={"lat": -14.2350, "lon": -51.9253},
