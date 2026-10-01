@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import json
 import io
+import plotly.express as px
 from datetime import datetime, timedelta, timezone
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -23,7 +24,6 @@ def carregar_dados_do_drive():
         
         pasta_principal_id = '1p0H9A9-0r8QCX34koCd3mrsyXmTtTzUQ'
         
-        # 1. Encontrar as subpastas 'pedidos' e 'financeiro'
         query_sub = f"'{pasta_principal_id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed=false"
         res_sub = servico.files().list(q=query_sub, fields="files(id, name)").execute()
         subpastas = res_sub.get('files', [])
@@ -38,7 +38,6 @@ def carregar_dados_do_drive():
             elif 'financeiro' in nome_sp or 'finan' in nome_sp:
                 pasta_financeiro_id = sp['id']
                 
-        # Função auxiliar para ler arquivos da pasta de pedidos
         def ler_pedidos(pasta_id):
             if not pasta_id:
                 return []
@@ -66,7 +65,6 @@ def carregar_dados_do_drive():
                 dfs.append(df)
             return dfs
 
-        # Função auxiliar para ler arquivos INCOME filtrando apenas linhas onde a coluna B é 'SKU' na aba 'Renda'
         def ler_financeiro(pasta_id):
             if not pasta_id:
                 return []
@@ -89,7 +87,6 @@ def carregar_dados_do_drive():
                         xls = pd.ExcelFile(arquivo_baixado)
                         sheet_names = xls.sheet_names
                         aba_renda = next((s for s in sheet_names if 'renda' in s.lower()), sheet_names[0])
-                        
                         df_bruto = pd.read_excel(xls, sheet_name=aba_renda, header=None)
                         
                         if df_bruto.shape[1] > 1:
@@ -102,11 +99,10 @@ def carregar_dados_do_drive():
                                     df_processado['ID do pedido'] = df_filtrado_linhas.iloc[:, 2].astype(str).str.strip()
                                 if df_filtrado_linhas.shape[1] > 11:
                                     df_processado['Quantia total lançada'] = df_filtrado_linhas.iloc[:, 11]
-                                    
                                 if not df_processado.empty:
                                     dfs.append(df_processado)
                     except Exception as e:
-                        print(f"Erro ao processar arquivo financeiro {arq['name']}: {e}")
+                        print(f"Erro financeiro: {e}")
             return dfs
 
         dfs_pedidos = ler_pedidos(pasta_pedidos_id)
@@ -121,10 +117,8 @@ def carregar_dados_do_drive():
         df_pedidos.columns = df_pedidos.columns.str.strip()
         df_limpo = df_pedidos.copy()
         
-        # --- CRUZAR COM DADOS FINANCEIROS FILTRADOS POR SKU ---
         if not df_financeiro.empty:
             df_financeiro.columns = df_financeiro.columns.str.strip()
-            
             col_id_ped = next((c for c in df_limpo.columns if 'id' in c.lower() and 'pedido' in c.lower()), df_limpo.columns[0])
             col_id_fin = 'ID do pedido' if 'ID do pedido' in df_financeiro.columns else next((c for c in df_financeiro.columns if 'id' in c.lower() and 'pedido' in c.lower()), None)
             col_quantia_fin = 'Quantia total lançada' if 'Quantia total lançada' in df_financeiro.columns else next((c for c in df_financeiro.columns if 'quantia' in c.lower() or 'total' in c.lower()), None)
@@ -148,7 +142,6 @@ def carregar_dados_do_drive():
         else:
             df_limpo['Valor_Financeiro_Real'] = 0.0
             
-        # --- CONVERSÃO DAS DATAS ---
         if 'Data de criação do pedido' in df_limpo.columns:
             df_limpo['Data_Criacao'] = pd.to_datetime(df_limpo['Data de criação do pedido'], errors='coerce')
         else:
@@ -159,7 +152,6 @@ def carregar_dados_do_drive():
         else:
             df_limpo['Data_Pagamento'] = pd.NaT
             
-        # --- FUNÇÃO PARA LIMPEZA DE VALORES ---
         def limpar_coluna_valor(serie):
             if serie is None:
                 return pd.Series(0.0, index=df_limpo.index)
@@ -178,15 +170,12 @@ def carregar_dados_do_drive():
         desc_frete = limpar_coluna_valor(df_limpo['Desconto de Frete Aproximado']) if 'Desconto de Frete Aproximado' in df_limpo.columns else 0.0
         ajuste_comercial = limpar_coluna_valor(df_limpo['Ajuste por participação em ação comercial']) if 'Ajuste por participação em ação comercial' in df_limpo.columns else 0.0
 
-        # --- CÁLCULOS FINAIS POR PEDIDO ---
         df_limpo['Valor_Sujo'] = total_global + ajuste_comercial
         frete_liquido = est_frete - desc_frete
         valor_produto_estimado = total_global - frete_liquido + ajuste_comercial
         
         val_real_limpo = limpar_coluna_valor(df_limpo['Valor_Financeiro_Real'])
-        
         df_limpo['Valor_Liberado'] = val_real_limpo
-        
         df_limpo['Valor_Produto'] = [
             real if real > 0 else est 
             for real, est in zip(val_real_limpo, valor_produto_estimado)
@@ -207,7 +196,6 @@ df = carregar_dados_do_drive()
 
 if df is not None and not df.empty:
     
-    # --- MENU DA BARRA LATERAL ---
     st.sidebar.header("🎛️ Navegação")
     pagina_selecionada = st.sidebar.radio("Ir para:", ["Financeiro", "Pedidos", "Estatísticas"])
     
@@ -254,10 +242,8 @@ if df is not None and not df.empty:
     col_status = 'Status do pedido' if 'Status do pedido' in df_periodo.columns else ('Status do Pedido' if 'Status do Pedido' in df_periodo.columns else None)
     col_motivo = 'Cancelar Motivo' if 'Cancelar Motivo' in df_periodo.columns else None
     
-    # --- MÁSCARAS DE CLASSIFICAÇÃO RIGOROSA ---
     if col_status and col_status in df_periodo.columns:
         s = df_periodo[col_status].astype(str).str.strip().str.lower()
-        
         if col_motivo and col_motivo in df_periodo.columns:
             motivo = df_periodo[col_motivo].astype(str).str.strip().str.lower()
             automatico_mask = motivo.str.contains('automático|automatico|sistema', na=False)
@@ -296,7 +282,6 @@ if df is not None and not df.empty:
     def fmt_val(val):
         return f"R$ {val:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
 
-    # Totais gerais (apenas Válidos)
     tot_produto_val = df_periodo[validados_mask]['Valor_Produto'].sum() if 'Valor_Produto' in df_periodo.columns else 0.0
     tot_liberado_val = df_periodo[validados_mask]['Valor_Liberado'].sum() if 'Valor_Liberado' in df_periodo.columns else 0.0
     tot_sujo_val = df_periodo[validados_mask]['Valor_Sujo'].sum() if 'Valor_Sujo' in df_periodo.columns else 0.0
@@ -421,8 +406,7 @@ if df is not None and not df.empty:
 
     # ==================== PÁGINA: ESTATÍSTICAS ====================
     elif pagina_selecionada == "Estatísticas":
-        st.header(f"📊 Estatísticas Gerais ({opcao_tempo})")
-        st.markdown("Visão geral consolidadas das operações e desempenho de vendas.")
+        st.header(f"📊 Estatísticas Gerais e Mapa Geográfico ({opcao_tempo})")
         
         col_est1, col_est2, col_est3 = st.columns(3)
         with col_est1:
@@ -433,10 +417,96 @@ if df is not None and not df.empty:
             st.metric("🎯 Ticket Médio (Renda por Pedido)", fmt_val(tot_produto_val / total_validos if total_validos > 0 else 0.0))
             
         st.divider()
-        st.subheader("📈 Resumo de Faturamento")
-        st.markdown(f"- **Montante de Produtos (Sua Renda):** `{fmt_val(tot_produto_val)}`")
-        st.markdown(f"- **Valor Já Liberado:** `{fmt_val(tot_liberado_val)}`")
-        st.markdown(f"- **Montante Bruto (Com Frete):** `{fmt_val(tot_sujo_val)}`")
+        st.subheader("🗺️ Distribuição de Pedidos por Estado (Brasil)")
+        
+        # Identificar coluna de estado/UF na base de pedidos
+        col_estado = next((c for c in df_periodo.columns if c.strip().lower() in ['estado', 'uf', 'província/estado', 'provincia/estado']), None)
+        
+        if col_estado:
+            df_validados_periodo = df_periodo[validados_mask].copy()
+            df_validados_periodo['UF'] = df_validados_periodo[col_estado].astype(str).str.strip().str.upper()
+            
+            # Agrupar por estado para o mapa
+            df_mapa = df_validados_periodo.groupby('UF').agg(
+                Quantidade=('ID do pedido' if 'ID do pedido' in df_validados_periodo.columns else df_validados_periodo.columns[0], 'nunique'),
+                Renda_Total=('Valor_Produto', 'sum')
+            ).reset_index()
+            
+            total_geral_pedidos = df_mapa['Quantidade'].sum()
+            if total_geral_pedidos > 0:
+                df_mapa['Porcentagem'] = (df_mapa['Quantidade'] / total_geral_pedidos) * 100
+            else:
+                df_mapa['Porcentagem'] = 0.0
+                
+            # Carregar GeoJSON dos estados do Brasil para o Plotly
+            url_geojson = "https://raw.githubusercontent.com/codeforamerica/click_that_hood/master/public/data/brazil-states.geojson"
+            
+            fig = px.choropleth(
+                df_mapa,
+                geojson=url_geojson,
+                locations='UF',
+                featureidkey='properties.sigla',
+                color='Quantidade',
+                color_continuous_scale='Blues',
+                hover_name='UF',
+                hover_data={'Quantidade': True, 'Porcentagem': ':.2f%'},
+                labels={'Quantidade': 'Volume de Pedidos'}
+            )
+            fig.update_geos(fitbounds="locations", visible=False)
+            fig.update_layout(margin={"r":0,"t":0,"l":0,"b":0}, height=450)
+            
+            # Exibir gráfico interativo
+            evento_clique = st.plotly_chart(fig, use_container_width=True, on_select="rerun")
+            
+            # Capturar clique no estado se houver seleção
+            estado_selecionado = None
+            try:
+                if evento_clique and "selection" in evento_clique:
+                    pontos = evento_clique["selection"].get("points", [])
+                    if pontos:
+                        estado_selecionado = pontos[0].get("location")
+            except:
+                pass
+                
+            if estado_selecionado:
+                st.divider()
+                st.subheader(f"📍 Detalhamento para o Estado: {estado_selecionado}")
+                
+                df_estado = df_validados_periodo[df_validados_periodo['UF'] == estado_selecionado]
+                qtd_est = df_estado[col_id].nunique()
+                renda_est = df_estado['Valor_Produto'].sum()
+                lib_est = df_estado['Valor_Liberado'].sum()
+                
+                c_est1, c_est2, c_est3 = st.columns(3)
+                c_est1.metric("📦 Pedidos no Estado", qtd_est)
+                c_est2.metric("🎯 Renda Total", fmt_val(renda_est))
+                c_est3.metric("💰 Valor Liberado", fmt_val(lib_est))
+                
+                st.markdown("##### 🏆 Top Produtos neste Estado")
+                col_prod = next((c for c in df_estado.columns if 'nome' in c.lower() and 'produto' in c.lower()), None)
+                if col_prod:
+                    top_prod = df_estado[col_prod].value_counts().reset_index()
+                    top_prod.columns = ['Produto', 'Quantidade Vendida']
+                    st.dataframe(top_prod.head(5), use_container_width=True)
+                else:
+                    st.info("Coluna de nome de produto não identificada para o ranking.")
+                    
+                st.markdown("##### 📋 Lista de Pedidos do Estado")
+                cols_est_show = [col_id, 'Data de criação do pedido', 'Valor_Produto', 'Valor_Liberado']
+                if col_prod:
+                    cols_est_show.append(col_prod)
+                df_est_fmt = df_estado[[c for c in cols_est_show if c in df_estado.columns]].copy()
+                if 'Valor_Produto' in df_est_fmt.columns:
+                    df_est_fmt['Montante Produto'] = df_est_fmt['Valor_Produto'].apply(fmt_val)
+                    df_est_fmt = df_est_fmt.drop(columns=['Valor_Produto'])
+                if 'Valor_Liberado' in df_est_fmt.columns:
+                    df_est_fmt['Valor Liberado'] = df_est_fmt['Valor_Liberado'].apply(fmt_val)
+                    df_est_fmt = df_est_fmt.drop(columns=['Valor_Liberado'])
+                st.dataframe(df_est_fmt, use_container_width=True)
+            else:
+                st.info("💡 **Dica:** Clique em cima de qualquer estado no mapa acima para ver os pedidos, valores e top produtos específicos daquela região.")
+        else:
+            st.warning("⚠️ Não foi encontrada uma coluna de 'Estado' ou 'UF' nas planilhas de pedidos da Shopee para gerar o mapa geográfico.")
 
 else:
     st.info("A pasta principal ou as subpastas 'pedidos' e 'financeiro' estão vazias ou a aguardar ficheiros no Google Drive!")
