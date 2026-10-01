@@ -413,7 +413,7 @@ if df is not None and not df.empty:
 
     # ==================== PÁGINA: ESTATÍSTICAS ====================
     elif pagina_selecionada == "Estatísticas":
-        st.header(f"📊 Estatísticas Gerais e Mapa Geográfico do Brasil ({opcao_tempo})")
+        st.header(f"📊 Estatísticas Gerais e Ranking por Estado ({opcao_tempo})")
         
         col_est1, col_est2, col_est3 = st.columns(3)
         with col_est1:
@@ -424,7 +424,7 @@ if df is not None and not df.empty:
             st.metric("🎯 Ticket Médio (Renda por Pedido)", fmt_val(tot_produto_val / total_validos if total_validos > 0 else 0.0))
             
         st.divider()
-        st.subheader("🗺️ Mapa Geográfico do Brasil por Estado (UF)")
+        st.subheader("📊 Ranking de Vendas por Estado (UF)")
         
         col_estado = next((c for c in df_periodo.columns if c.strip().upper() == 'UF'), None)
         
@@ -432,48 +432,33 @@ if df is not None and not df.empty:
             df_validados_periodo = df_periodo[validados_mask].copy()
             df_validados_periodo['UF_Normalizada'] = df_validados_periodo[col_estado].astype(str).str.strip().str.upper()
             
-            coords_estados = {
-                'AC': (-9.0238, -70.8120), 'AL': (-9.5713, -36.7820), 'AP': (1.4125, -51.7700),
-                'AM': (-3.4168, -65.8561), 'BA': (-12.5797, -41.7007), 'CE': (-5.4984, -39.3206),
-                'DF': (-15.7998, -47.8645), 'ES': (-19.1834, -40.3089), 'GO': (-15.8270, -49.8362),
-                'MA': (-4.9609, -45.2744), 'MT': (-12.6819, -56.9211), 'MS': (-20.7722, -54.7852),
-                'MG': (-18.5122, -44.5550), 'PA': (-3.4168, -52.2153), 'PB': (-7.2400, -36.7820),
-                'PR': (-25.2521, -52.0215), 'PE': (-8.8137, -36.9541), 'PI': (-7.7183, -42.7289),
-                'RJ': (-22.9068, -43.1729), 'RN': (-5.4092, -36.9441), 'RS': (-30.0346, -51.2177),
-                'RO': (-11.2993, -62.8150), 'RR': (1.8944, -61.4013), 'SC': (-27.2423, -50.2189),
-                'SP': (-23.5505, -46.6333), 'SE': (-10.5741, -37.3857), 'TO': (-10.1753, -48.2982)
-            }
-            
             df_mapa = df_validados_periodo.groupby('UF_Normalizada').agg(
                 Quantidade=('ID do pedido' if 'ID do pedido' in df_validados_periodo.columns else df_validados_periodo.columns[0], 'nunique'),
                 Renda_Total=('Valor_Produto', 'sum')
             ).reset_index()
             
-            df_mapa['Lat'] = df_mapa['UF_Normalizada'].map(lambda x: coords_estados.get(x, (-14.2350, -51.9253))[0])
-            df_mapa['Lon'] = df_mapa['UF_Normalizada'].map(lambda x: coords_estados.get(x, (-14.2350, -51.9253))[1])
+            total_geral_pedidos = df_mapa['Quantidade'].sum()
+            if total_geral_pedidos > 0:
+                df_mapa['Porcentagem'] = (df_mapa['Quantidade'] / total_geral_pedidos) * 100
+            else:
+                df_mapa['Porcentagem'] = 0.0
+                
+            df_mapa = df_mapa.sort_values(by='Quantidade', ascending=True)
             
-            fig = px.scatter_geo(
+            # Gráfico de barras horizontais em gradiente
+            fig = px.bar(
                 df_mapa,
-                lat='Lat',
-                lon='Lon',
-                size='Quantidade',
+                x='Quantidade',
+                y='UF_Normalizada',
+                text=df_mapa['Porcentagem'].apply(lambda x: f"{x:.1f}%"),
+                orientation='h',
                 color='Quantidade',
-                hover_name='UF_Normalizada',
                 color_continuous_scale="Blues",
-                size_max=40,
-                labels={'Quantidade': 'Volume de Pedidos'}
+                labels={'Quantidade': 'Volume de Pedidos', 'UF_Normalizada': 'Estado (UF)'},
+                title="Volume e Participação (%) por Estado"
             )
-            
-            fig.update_geos(
-                scope="south america",
-                center={"lat": -14.2350, "lon": -51.9253},
-                projection_scale=3.8,
-                visible=True,
-                showcountries=True, countrycolor="lightgray",
-                showcoastlines=True, coastlinecolor="lightgray",
-                showland=True, landcolor="rgb(245, 247, 250)"
-            )
-            fig.update_layout(margin={"r":0, "t":0, "l":0, "b":0}, height=550)
+            fig.update_traces(textposition='outside')
+            fig.update_layout(margin={"r":10,"t":40,"l":10,"b":10}, height=500, coloraxis_showscale=False)
             
             evento_clique = st.plotly_chart(fig, use_container_width=True, on_select="rerun")
             
@@ -482,9 +467,7 @@ if df is not None and not df.empty:
                 if evento_clique and "selection" in evento_clique:
                     pontos = evento_clique["selection"].get("points", [])
                     if pontos:
-                        idx = pontos[0].get("pointIndex")
-                        if idx is not None and idx < len(df_mapa):
-                            estado_selecionado = df_mapa.iloc[idx]['UF_Normalizada']
+                        estado_selecionado = pontos[0].get("y")
             except:
                 pass
                 
@@ -524,7 +507,7 @@ if df is not None and not df.empty:
                     df_est_fmt = df_est_fmt.drop(columns=['Valor_Liberado'])
                 st.dataframe(df_est_fmt, use_container_width=True)
             else:
-                st.info("💡 **Dica:** Clique em cima de qualquer bolha de estado no mapa do Brasil acima para visualizar os pedidos, valores e produtos mais vendidos daquela região.")
+                st.info("💡 **Dica:** Clique em cima de qualquer barra de estado no gráfico acima para visualizar os pedidos, valores e produtos mais vendidos daquela região.")
         else:
             st.warning("⚠️ Não foi encontrada uma coluna com o título 'UF' nas planilhas de pedidos da Shopee.")
 
