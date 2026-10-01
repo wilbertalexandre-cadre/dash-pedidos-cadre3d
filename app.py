@@ -147,11 +147,12 @@ if df is not None and not df.empty:
     col_id = 'ID do Pedido' if 'ID do Pedido' in df_periodo.columns else ('ID do pedido' if 'ID do pedido' in df_periodo.columns else df_periodo.columns[0])
     col_status = 'Status do pedido' if 'Status do pedido' in df_periodo.columns else ('Status do Pedido' if 'Status do Pedido' in df_periodo.columns else None)
     
-    # --- CÁLCULOS FILTRADOS POR PERÍODO ---
+    # --- CÁLCULOS FILTRADOS POR PERÍODO (REGRA DE CANCELADOS RIGOROSA) ---
     if col_status and col_status in df_periodo.columns:
         s = df_periodo[col_status].astype(str).str.strip().str.lower()
         
-        cancelados_mask = s.str.contains('cancelado|devolução|retorno', na=False)
+        # Considera cancelado apenas se o status principal for explicitamente cancelado ou reembolso concluído
+        cancelados_mask = s.eq('cancelado') | s.str.contains('pedido cancelado|reembolsado', na=False)
         validados_mask = ~cancelados_mask & ~s.str.contains('não pago|unpaid', na=False)
         
         total_validos = df_periodo[validados_mask][col_id].nunique()
